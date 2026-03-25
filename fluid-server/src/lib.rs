@@ -136,6 +136,7 @@ pub fn sign_transaction_xdr_internal(
     })
 }
 
+#[derive(Debug)]
 struct SignerContext {
     signing_key: SigningKey,
     public_key: String,
