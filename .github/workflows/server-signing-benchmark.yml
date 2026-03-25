@@ -41,7 +41,7 @@ jobs:
 
       - name: Commit benchmark report
         run: |
-          if git diff --quiet -- benchmarks/signing-report.md; then
+          if [ -z "$(git status --short -- benchmarks/signing-report.md)" ]; then
             exit 0
           fi
 
