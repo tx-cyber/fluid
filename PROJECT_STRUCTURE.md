@@ -9,7 +9,7 @@ fluid/
 |   |   |-- state.rs      # Shared runtime state and failover/rate-limit helpers
 |   |   |-- config.rs     # Environment mapping
 |   |   |-- error.rs      # API error responses
-|   |   `-- xdr.rs        # Stellar XDR parsing/logging
+|   |   `-- xdr.rs        # Stellar XDR parsing/logging`
 |   |-- tests/
 |   |   `-- rust_only_verification.rs
 |   `-- Cargo.toml

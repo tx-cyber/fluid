@@ -35,6 +35,15 @@ dotenv.config();
 
 const logger = createLogger({ component: "server" });
 const app = express();
+
+// Stripe webhook needs raw body for signature verification
+app.post(
+  "/webhooks/stripe",
+  express.raw({ type: "application/json" }),
+  stripeWebhookHandler
+);
+
+// JSON parsing for all other routes
 app.use(express.json());
 
 const config = loadConfig();
@@ -180,11 +189,13 @@ app.post("/test/alerts/low-balance", async (req: Request, res: Response, next: N
 
 app.get("/admin/api-keys", listApiKeysHandler);
 app.post("/admin/api-keys", upsertApiKeyHandler);
+app.patch("/admin/api-keys/:key/revoke", revokeApiKeyHandler);
 app.delete("/admin/api-keys/:key", revokeApiKeyHandler);
 app.get("/admin/signers", listSignersHandler(config));
 app.post("/admin/signers", addSignerHandler(config));
 app.delete("/admin/signers/:publicKey", removeSignerHandler(config));
 
+// 404 - must come after all routes
 app.use(notFoundHandler);
 app.use(globalErrorHandler);
 
