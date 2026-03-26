@@ -5,7 +5,7 @@ import type { DashboardSigner, DashboardTransaction } from "@/components/dashboa
 interface HealthApiResponse {
   fee_payers?: Array<{
     publicKey: string;
-    status: "active" | "inactive";
+    status: "Active" | "Low Balance" | "Sequence Error" | "Inactive";
     in_flight?: number;
     total_uses?: number;
     sequence_number?: string | number | null;
@@ -33,7 +33,7 @@ const SAMPLE_SIGNERS: DashboardSigner[] = [
   {
     id: "signer-01",
     publicKey: "GDQP3KPQGKIHYJGXNUIYOMHARUARCA6QK4F6GZOPFOVS4Q7JH4L6NK7K",
-    status: "active",
+    status: "Active",
     balance: "128.40 XLM",
     inFlight: 2,
     totalUses: 184,
@@ -42,7 +42,7 @@ const SAMPLE_SIGNERS: DashboardSigner[] = [
   {
     id: "signer-02",
     publicKey: "GC4YVSVKQK2R3BRQ6WBC6VR7P3CGZ7S2D6WQKIFMK5AQL6C2L2Q5P4K2",
-    status: "active",
+    status: "Active",
     balance: "19.32 XLM",
     inFlight: 1,
     totalUses: 97,
@@ -51,7 +51,7 @@ const SAMPLE_SIGNERS: DashboardSigner[] = [
   {
     id: "signer-03",
     publicKey: "GBA2B5DM4QUQ3R4JZPSYLAF5A34Q6VQW2UM3M7LQFPA7MS5QVCQY6Q75",
-    status: "inactive",
+    status: "Low Balance",
     balance: "0.90 XLM",
     inFlight: 0,
     totalUses: 12,

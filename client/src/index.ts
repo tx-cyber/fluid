@@ -1,9 +1,426 @@
+import StellarSdk from "@stellar/stellar-sdk";
+import dotenv from "dotenv";
+import {
+  createHorizonServer,
+  fromTransactionXdr,
+  resolveStellarSdk,
+  toTransactionXdr,
+} from "./stellarCompatibility";
+
+dotenv.config();
+
+export interface FluidClientConfig {
+  serverUrl: string;
+  networkPassphrase: string;
+  horizonUrl?: string;
+  useWorker?: boolean; // New option to enable Web Worker for signing operations
+  stellarSdk?: unknown;
+}
+
+export interface FeeBumpResponse {
+  xdr: string;
+  status: string;
+  hash?: string;
+}
+
+// Worker message types
+interface WorkerRequest {
+  id: string;
+  type: "sign_transaction" | "create_xdr";
+  data: any;
+}
+
+interface WorkerResponse {
+  id: string;
+  type: "success" | "error";
+  result?: any;
+  error?: string;
+}
+export type WaitForConfirmationProgress = {
+  hash: string;
+  attempt: number;
+  elapsedMs: number;
+};
+
+export type WaitForConfirmationOptions = {
+  pollIntervalMs?: number;
+  onProgress?: (progress: WaitForConfirmationProgress) => void;
+};
+
+export class FluidClient {
+  private serverUrl: string;
+  private networkPassphrase: string;
+  private horizonServer?: any;
+  private useWorker: boolean;
+  private worker?: Worker;
+  private pendingRequests: Map<
+    string,
+    { resolve: Function; reject: Function; timeout: number }
+  > = new Map();
+  private requestIdCounter: number = 0;
+  private horizonUrl?: string;
+  private stellarSdk: unknown;
+
+  constructor(config: FluidClientConfig) {
+    this.serverUrl = config.serverUrl;
+    this.networkPassphrase = config.networkPassphrase;
+    this.useWorker = config.useWorker || false;
+
+    this.stellarSdk = resolveStellarSdk(config.stellarSdk ?? StellarSdk);
+    if (config.horizonUrl) {
+      this.horizonServer = createHorizonServer(this.stellarSdk, config.horizonUrl);
+    }
+
+    // Initialize worker if enabled
+    if (this.useWorker && typeof Worker !== "undefined") {
+      this.initializeWorker();
+    }
+  }
+
+  private initializeWorker(): void {
+    try {
+      // Create worker from the worker file
+      this.worker = new Worker(
+        new URL("./workers/signingWorker.ts", import.meta.url),
+        {
+          type: "module",
+        },
+      );
+
+      this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
+        const { id, type, result, error } = event.data;
+        const pending = this.pendingRequests.get(id);
+
+        if (pending) {
+          clearTimeout(pending.timeout);
+          this.pendingRequests.delete(id);
+
+          if (type === "success") {
+            pending.resolve(result);
+          } else {
+            pending.reject(new Error(error || "Worker operation failed"));
+          }
+        }
+      };
+
+      this.worker.onerror = (error) => {
+        console.error("[FluidClient] Worker error:", error);
+        // Fallback to main thread on worker error
+        this.useWorker = false;
+        this.worker?.terminate();
+        this.worker = undefined;
+      };
+
+      console.log(
+        "[FluidClient] Web Worker initialized for signing operations",
+      );
+    } catch (error) {
+      console.warn(
+        "[FluidClient] Failed to initialize worker, falling back to main thread:",
+        error,
+      );
+      this.useWorker = false;
+    }
+  }
+
+  private async sendWorkerMessage(
+    type: "sign_transaction" | "create_xdr",
+    data: any,
+    timeout: number = 30000,
+  ): Promise<any> {
+    if (!this.worker || !this.useWorker) {
+      throw new Error("Worker not available");
+    }
+
+    const id = `req_${++this.requestIdCounter}`;
+
+    return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        this.pendingRequests.delete(id);
+        reject(new Error("Worker operation timed out"));
+      }, timeout);
+
+      this.pendingRequests.set(id, { resolve, reject, timeout: timeoutId });
+
+      const request: WorkerRequest = { id, type, data };
+      this.worker!.postMessage(request);
+    });
+  }
+
+  // Worker-based signing method
+  private async signWithWorker(transaction: any): Promise<string> {
+    try {
+      // Extract transaction data for worker
+      const transactionData = {
+        transactionXdr: transaction.toXDR(),
+        // Note: In a real implementation, you'd need to handle key extraction securely
+        // This is a simplified example
+        secretKey: "mock_key_for_demo", // This would need proper secure handling
+      };
+
+      const result = await this.sendWorkerMessage(
+        "sign_transaction",
+        transactionData,
+      );
+      return result.signedXdr;
+    } catch (error) {
+      console.error(
+        "[FluidClient] Worker signing failed, falling back to main thread:",
+        error,
+      );
+      throw error;
+    }
+  }
+
+  // Main thread signing fallback
+  private async signOnMainThread(
+    transaction: any,
+    keypair: any,
+  ): Promise<string> {
+    // Use existing Stellar SDK signing
+    transaction.sign(keypair);
+    return transaction.toXDR();
+  }
+
+  async requestFeeBump(
+    signedTransactionXdr: string,
+    submit: boolean = false,
+  ): Promise<FeeBumpResponse> {
+    const response = await fetch(`${this.serverUrl}/fee-bump`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        xdr: signedTransactionXdr,
+        submit: submit,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(`Fluid server error: ${JSON.stringify(error)}`);
+    }
+
+    const result = (await response.json()) as FeeBumpResponse;
+    return {
+      xdr: result.xdr,
+      status: result.status,
+      hash: result.hash,
+    };
+  }
+
+  async submitFeeBumpTransaction(feeBumpXdr: string): Promise<any> {
+    if (!this.horizonServer) {
+      throw new Error("Horizon URL not configured");
+    }
+
+    const feeBumpTx = fromTransactionXdr(this.stellarSdk, feeBumpXdr, this.networkPassphrase);
+
+    return await this.horizonServer.submitTransaction(feeBumpTx);
+  }
+
+  async waitForConfirmation(
+    hash: string,
+    timeoutMs: number = 60_000,
+    options: WaitForConfirmationOptions = {}
+  ): Promise<any> {
+    if (!this.horizonUrl) {
+      throw new Error("Horizon URL not configured");
+    }
+
+    const pollIntervalMs = options.pollIntervalMs ?? 1_500;
+    const startedAt = Date.now();
+    let attempt = 0;
+
+    const sleep = (ms: number) =>
+      new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+    // Horizon returns 404 until the transaction is ingested.
+    // Once found, the response includes a `ledger` number when confirmed.
+    // Ref: GET /transactions/{hash}
+    while (Date.now() - startedAt < timeoutMs) {
+      attempt += 1;
+      options.onProgress?.({
+        hash,
+        attempt,
+        elapsedMs: Date.now() - startedAt,
+      });
+
+      const res = await fetch(`${this.horizonUrl}/transactions/${hash}`, {
+        method: "GET",
+        headers: { Accept: "application/json" },
+      });
+
+      if (res.status === 404) {
+        await sleep(pollIntervalMs);
+        continue;
+      }
+
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error(
+          `Horizon error while confirming tx (${res.status}): ${body}`
+        );
+      }
+
+      const tx = await res.json();
+      // If Horizon found it, it's confirmed on-ledger (Horizon only serves
+      // transactions that have been included).
+      return tx;
+    }
+
+    throw new Error(
+      `Timed out waiting for transaction confirmation after ${timeoutMs}ms: ${hash}`
+    );
+  }
+
+  async awaitTransactionConfirmation(
+    hash: string,
+    timeoutMs: number = 60_000,
+    options: WaitForConfirmationOptions = {}
+  ): Promise<any> {
+    return this.waitForConfirmation(hash, timeoutMs, options);
+  }
+
+  
+  async buildAndRequestFeeBump(
+    transaction: any,
+    keypair?: any,
+    submit: boolean = false,
+  ): Promise<FeeBumpResponse> {
+    let signedXdr: string;
+
+    if (this.useWorker && this.worker) {
+      try {
+        // Try worker-based signing
+        signedXdr = await this.signWithWorker(transaction);
+      } catch (error) {
+        console.warn(
+          "[FluidClient] Worker signing failed, using main thread fallback",
+        );
+        if (!keypair) {
+          throw new Error("Keypair required for main thread signing fallback");
+        }
+        signedXdr = await this.signOnMainThread(transaction, keypair);
+      }
+    } else {
+      // Use main thread signing
+      if (!keypair) {
+        throw new Error("Keypair required for signing");
+      }
+      signedXdr = await this.signOnMainThread(transaction, keypair);
+    }
+
+    return await this.requestFeeBump(signedXdr, submit);
+  }
+
+  // New method for performance testing
+  async signMultipleTransactions(
+    transactions: any[],
+    keypair?: any,
+  ): Promise<string[]> {
+    const results: string[] = [];
+
+    for (const transaction of transactions) {
+      if (this.useWorker && this.worker) {
+        try {
+          const signedXdr = await this.signWithWorker(transaction);
+          results.push(signedXdr);
+        } catch (error) {
+          console.warn(
+            "[FluidClient] Worker signing failed, using main thread fallback",
+          );
+          if (!keypair) {
+            throw new Error(
+              "Keypair required for main thread signing fallback",
+            );
+          }
+          const signedXdr = await this.signOnMainThread(transaction, keypair);
+          results.push(signedXdr);
+        }
+      } else {
+        if (!keypair) {
+          throw new Error("Keypair required for signing");
+        }
+        const signedXdr = await this.signOnMainThread(transaction, keypair);
+        results.push(signedXdr);
+      }
+    }
+
+    return results;
+  }
+
+  // Cleanup method
+  terminate(): void {
+    if (this.worker) {
+      this.worker.terminate();
+      this.worker = undefined;
+    }
+    this.pendingRequests.clear();
+  }
+}
+
+export { FluidQueue } from "./queue";
+export type { QueuedTransaction, FluidQueueCallbacks } from "./queue";
 export {
-  FluidClient,
-  type FeeBumpRequestBody,
-  type FeeBumpRequestInput,
-  type FeeBumpResponse,
-  type FluidClientConfig,
-  type XdrSerializableTransaction,
-} from "./FluidClient";
-export { useFeeBump, type UseFeeBumpResult } from "./hooks/useFeeBump";
+  buildFeeBumpTransaction,
+  createHorizonServer,
+  fromTransactionXdr,
+  getSdkFamily,
+  isTransactionLike,
+  resolveStellarSdk,
+  toTransactionXdr,
+} from "./stellarCompatibility";
+
+// Example usage
+async function main() {
+  const client = new FluidClient({
+    serverUrl: process.env.FLUID_SERVER_URL || "http://localhost:3000",
+    networkPassphrase: StellarSdk.Networks.TESTNET,
+    horizonUrl: "https://horizon-testnet.stellar.org",
+  });
+
+  // Example: create a transaction
+  const userKeypair = StellarSdk.Keypair.random();
+  console.log("User wallet:", userKeypair.publicKey());
+
+  // fund the wallet (onlyon testnet )
+  await fetch(`https://friendbot.stellar.org?addr=${userKeypair.publicKey()}`);
+  await new Promise((resolve) => setTimeout(resolve, 2000));
+
+  const server = new StellarSdk.Horizon.Server(
+    "https://horizon-testnet.stellar.org",
+  );
+  const account = await server.loadAccount(userKeypair.publicKey());
+
+  // Build transaction
+  const transaction = new StellarSdk.TransactionBuilder(account, {
+    fee: StellarSdk.BASE_FEE,
+    networkPassphrase: StellarSdk.Networks.TESTNET,
+  })
+    .addOperation(
+      StellarSdk.Operation.payment({
+        destination: StellarSdk.Keypair.random().publicKey(),
+        asset: StellarSdk.Asset.native(),
+        amount: "5",
+      }),
+    )
+    .setTimeout(180)
+    .build();
+
+  // Sign transaction
+  transaction.sign(userKeypair);
+
+  // Request fee-bump
+  const result = await client.requestFeeBump(transaction.toXDR(), false);
+  console.log("Fee-bump XDR received:", result.xdr.substring(0, 50) + "...");
+
+  // Submit fee-bump transaction
+  const submitResult = await client.submitFeeBumpTransaction(result.xdr);
+  console.log("Transaction submitted! Hash:", submitResult.hash);
+}
+
+if (require.main === module) {
+  main().catch(console.error);
+}

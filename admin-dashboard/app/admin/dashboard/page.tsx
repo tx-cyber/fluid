@@ -6,11 +6,15 @@ import {
 } from "@/components/dashboard/ResponsiveTables";
 import { getDashboardPageData } from "@/lib/dashboard-data";
 import { StatCard } from "@/components/dashboard/StatCard";
+import { UsageLeaderboard } from "@/components/dashboard/UsageLeaderboard";
+import { getTenantLeaderboard } from "@/lib/transaction-history";
+import { SpendChart } from "@/components/dashboard/SpendChart";
 import { Coins, CheckCircle, Wallet, Zap, KeyRound } from "lucide-react";
 
 export default async function AdminDashboard() {
   const session = await auth();
   const { signers, transactions, source } = await getDashboardPageData();
+  const tenantUsage = await getTenantLeaderboard();
 
   return (
     <div className="min-h-screen bg-slate-100">
@@ -54,6 +58,7 @@ export default async function AdminDashboard() {
       </div>
 
       <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+        {/* Stat Cards */}
         <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <StatCard
             title="Total XLM Sponsored"
@@ -81,14 +86,19 @@ export default async function AdminDashboard() {
           />
         </section>
 
+        {/* Spend Analytics Chart */}
+        <section className="mt-6">
+          <SpendChart />
+        </section>
+
+        {/* Tables */}
         <section className="mt-6 space-y-6">
-          <div className="flex justify-end gap-3">
+          <div className="flex flex-wrap justify-end gap-3">
             <Link
-              href="/admin/api-keys"
-              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+              href="/admin/signers"
+              className="inline-flex min-h-10 items-center justify-center rounded-full border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
             >
-              <KeyRound className="h-4 w-4" aria-hidden="true" />
-              Manage API keys
+              Manage signer pool
             </Link>
             <Link
               href="/admin/transactions"
@@ -99,6 +109,7 @@ export default async function AdminDashboard() {
           </div>
           <TransactionsTable transactions={transactions} />
           <SignersTable signers={signers} />
+          <UsageLeaderboard rows={tenantUsage} />
         </section>
       </main>
     </div>

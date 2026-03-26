@@ -50,7 +50,16 @@ function transactionTone(status: DashboardTransaction["status"]) {
 }
 
 function signerTone(status: DashboardSigner["status"]) {
-  return status === "active" ? "green" : "slate";
+  switch (status) {
+    case "Active":
+      return "green";
+    case "Low Balance":
+      return "amber";
+    case "Sequence Error":
+      return "red";
+    default:
+      return "slate";
+  }
 }
 
 function MobileDisclosure({

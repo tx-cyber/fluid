@@ -1,5 +1,5 @@
-import { NextFunction, Request, Response } from "express";
 import StellarSdk, { Transaction } from "@stellar/stellar-sdk";
+import { NextFunction, Request, Response } from "express";
 import { Config, pickFeePayerAccount } from "../config";
 import { AppError } from "../errors/AppError";
 import { ApiKeyConfig } from "../middleware/apiKeys";
@@ -8,6 +8,7 @@ import { recordSponsoredTransaction } from "../models/transactionLedger";
 import { FeeBumpRequest, FeeBumpSchema } from "../schemas/feeBump";
 import { checkTenantDailyQuota } from "../services/quota";
 import { calculateFeeBumpFee } from "../utils/feeCalculator";
+import { MockPriceOracle, validateSlippage } from "../utils/priceOracle";
 import { transactionStore } from "../workers/transactionStore";
 
 interface FeeBumpResponse {
@@ -19,19 +20,19 @@ interface FeeBumpResponse {
   submission_attempts?: number;
 }
 
-export async function feeBumpHandler (
+export async function feeBumpHandler(
   req: Request,
   res: Response,
-  next: NextFunction,
   config: Config,
+  next: NextFunction,
 ): Promise<void> {
   try {
     const parsedBody = FeeBumpSchema.safeParse(req.body);
 
-    if (!result.success) {
+    if (!parsedBody.success) {
       console.warn(
         "Validation failed for fee-bump request:",
-        result.error.format(),
+        parsedBody.error.format(),
       );
 
       return next(
@@ -43,7 +44,7 @@ export async function feeBumpHandler (
       );
     }
 
-    const body: FeeBumpRequest = result.data;
+    const body: FeeBumpRequest = parsedBody.data;
     const feePayerAccount = pickFeePayerAccount(config);
     console.log(
       `Received fee-bump request | fee_payer: ${feePayerAccount.publicKey}`,
@@ -63,7 +64,10 @@ export async function feeBumpHandler (
       );
     }
 
-    if (!innerTransaction.signatures || innerTransaction.signatures.length === 0) {
+    if (
+      !innerTransaction.signatures ||
+      innerTransaction.signatures.length === 0
+    ) {
       return next(
         new AppError(
           "Inner transaction must be signed before fee-bumping",
@@ -90,6 +94,32 @@ export async function feeBumpHandler (
       config.feeMultiplier,
     );
 
+    // Verify settlement payment if token is specified
+    const settlementRequirement = extractSettlementRequirement(
+      body.token,
+      feeAmount,
+    );
+    if (settlementRequirement) {
+      const settlementVerification = verifySettlementPayment(
+        innerTransaction,
+        settlementRequirement,
+        config,
+      );
+
+      if (!settlementVerification.isValid) {
+        console.error(
+          `Settlement verification failed: ${settlementVerification.reason}`,
+        );
+        return next(
+          new AppError(
+            `Settlement verification failed: ${settlementVerification.reason}`,
+            400,
+            "SETTLEMENT_VERIFICATION_FAILED",
+          ),
+        );
+      }
+    }
+
     const apiKeyConfig = res.locals.apiKey as ApiKeyConfig | undefined;
     if (!apiKeyConfig) {
       res.status(500).json({
@@ -99,7 +129,7 @@ export async function feeBumpHandler (
     }
 
     const tenant = syncTenantFromApiKey(apiKeyConfig);
-    const quotaCheck = checkTenantDailyQuota(tenant, feeAmount);
+    const quotaCheck = await checkTenantDailyQuota(tenant, feeAmount);
     if (!quotaCheck.allowed) {
       res.status(403).json({
         error: "Daily fee sponsorship quota exceeded",
@@ -110,11 +140,55 @@ export async function feeBumpHandler (
       return;
     }
 
-      // Preflight simulation for Soroban transactions
-      const isSoroban = innerTransaction.operations.some(
-        (op: any) =>
-          ["invokeHostFunction", "extendFootprintTtl", "restoreFootprint"].includes(op.type)
-      );
+    // Slippage protection for token payments
+    if (body.token && body.maxSlippage !== undefined) {
+      const priceOracle = new MockPriceOracle();
+      const requestTime = Date.now();
+
+      try {
+        const currentPrice = await priceOracle.getCurrentPrice(body.token);
+        const historicalPrice = await priceOracle.getHistoricalPrice(
+          body.token,
+          requestTime - 120000,
+        ); // 2 minutes ago
+
+        const slippageCheck = validateSlippage(
+          historicalPrice,
+          currentPrice,
+          body.maxSlippage,
+        );
+
+        if (!slippageCheck.valid) {
+          return next(
+            new AppError(
+              "Slippage too high: try increasing your fee payment",
+              400,
+              "SLIPPAGE_TOO_HIGH",
+            ),
+          );
+        }
+
+        console.log(
+          `Slippage check passed | token: ${body.token} | slippage: ${slippageCheck.actualSlippage.toFixed()}% | max: ${body.maxSlippage}%`,
+        );
+      } catch (error: any) {
+        console.error("Price oracle error:", error.message);
+        return next(
+          new AppError(
+            `Failed to verify token price: ${error.message}`,
+            500,
+            "INTERNAL_ERROR",
+          ),
+        );
+      }
+    }
+
+    // Preflight simulation for Soroban transactions
+    const isSoroban = innerTransaction.operations.some((op: any) =>
+      ["invokeHostFunction", "extendFootprintTtl", "restoreFootprint"].includes(
+        op.type,
+      ),
+    );
 
     const feeBumpTx = StellarSdk.TransactionBuilder.buildFeeBumpTransaction(
       feePayerAccount.keypair,
@@ -124,7 +198,7 @@ export async function feeBumpHandler (
     );
 
     feeBumpTx.sign(feePayerAccount.keypair);
-    recordSponsoredTransaction(tenant.id, feeAmount);
+    await recordSponsoredTransaction(tenant.id, feeAmount);
 
     const feeBumpXdr = feeBumpTx.toXDR();
     console.log(
@@ -137,7 +211,7 @@ export async function feeBumpHandler (
 
       try {
         const submissionResult = await server.submitTransaction(feeBumpTx);
-        transactionStore.addTransaction(submissionResult.hash, "submitted");
+        transactionStore.addTransaction(submissionResult.hash, tenant.id, "submitted");
 
         const response: FeeBumpResponse = {
           xdr: feeBumpXdr,

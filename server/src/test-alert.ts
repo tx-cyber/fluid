@@ -1,6 +1,7 @@
 import dotenv from "dotenv";
 import path from "path";
 import { AlertingConfig, Config } from "./config";
+import { SignerPool } from "./signing";
 import { AlertService } from "./services/alertService";
 
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
@@ -71,18 +72,28 @@ function buildTestConfig(): Config {
 
   return {
     feePayerAccounts: [],
+    signerPool: new SignerPool([
+      {
+        keypair: require("@stellar/stellar-sdk").Keypair.random(),
+        secret: "test-secret",
+      },
+    ]),
     baseFee: 100,
     feeMultiplier: 2,
     networkPassphrase:
       process.env.STELLAR_NETWORK_PASSPHRASE ||
       "Test SDF Network ; September 2015",
     horizonUrl: process.env.STELLAR_HORIZON_URL,
+    horizonUrls: process.env.STELLAR_HORIZON_URL ? [process.env.STELLAR_HORIZON_URL] : [],
+    horizonSelectionStrategy: "priority",
     rateLimitWindowMs: parsePositiveInt(
       process.env.FLUID_RATE_LIMIT_WINDOW_MS,
       60_000,
     ),
     rateLimitMax: parsePositiveInt(process.env.FLUID_RATE_LIMIT_MAX, 5),
     allowedOrigins: [],
+    maxXdrSize: 10_240,
+    maxOperations: 100,
     alerting,
   };
 }

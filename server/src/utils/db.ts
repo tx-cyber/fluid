@@ -1,7 +1,7 @@
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 
 type PrismaClientLike = {
-  [key: string]: unknown;
+  [key: string]: any;
 };
 
 type PrismaModule = {

@@ -1,6 +1,4 @@
-mod config;
 mod db;
-mod error;
 mod metrics;
 mod state;
 mod stellar;
@@ -16,14 +14,15 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use config::load_config;
+use fluid_server::config::load_config;
 use db::create_pool;
-use error::AppError;
+use fluid_server::error::AppError;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPool;
 use state::{
     iso_now, utc_day_start_ms, ApiKeyConfig, AppState, HealthFeePayer, HorizonNodeStatus,
-    RateLimitEntry, RateLimitResult, TransactionRecord, API_KEYS, REVALIDATION_INTERVAL_SECS,
+    RateLimitEntry, RateLimitResult, SignerPool, TransactionRecord, API_KEYS,
+    REVALIDATION_INTERVAL_SECS,
 };
 use std::{net::SocketAddr, sync::Arc, time::Instant};
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
@@ -170,7 +169,7 @@ async fn run() -> Result<(), AppError> {
 
     // Background task: periodically revalidate signer accounts and refresh balances
     {
-        let pool = Arc::clone(&state.signer_pool);
+        let pool: Arc<SignerPool> = Arc::clone(&state.signer_pool);
         let horizon_urls = state.config.horizon_urls.clone();
         let client = reqwest::Client::new();
         tokio::spawn(async move {

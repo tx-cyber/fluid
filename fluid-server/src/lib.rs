@@ -12,6 +12,13 @@ use stellar_xdr::curr::{
 };
 use wasm_bindgen::prelude::*;
 
+// These modules are primarily used by the native server binary.
+// We expose them from the library so unit tests + coverage tools can exercise them.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod config;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod error;
+
 const MAX_SIGNATURES: usize = 20;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -393,5 +400,53 @@ mod tests {
         );
 
         assert!(matches!(result, Err(SigningError::SignatureOverflow)));
+    }
+
+    #[test]
+    fn signature_hint_uses_last_4_bytes() {
+        let bytes = [
+            0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+            22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+        ];
+        assert_eq!(signature_hint(&bytes), [28, 29, 30, 31]);
+    }
+
+    #[test]
+    fn sha256_produces_expected_digest() {
+        // Known SHA-256("abc") test vector.
+        let digest = sha256(b"abc");
+        assert_eq!(
+            hex::encode(digest),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
+
+    #[test]
+    fn envelope_signature_count_counts_all_envelope_variants() {
+        let mut env = parse_transaction_envelope(UNSIGNED_XDR).unwrap();
+        assert_eq!(envelope_signature_count(&env), 0);
+
+        // Append a signature and ensure count increments.
+        let signer = signer_context(TEST_SECRET_KEY).unwrap();
+        let tx_hash = transaction_hash(&env, TEST_NETWORK_PASSPHRASE).unwrap();
+        let _ = append_signature(&mut env, &signer, &tx_hash).unwrap();
+        assert_eq!(envelope_signature_count(&env), 1);
+    }
+
+    #[test]
+    fn push_signature_appends_when_under_limit() {
+        let signatures: VecM<DecoratedSignature, 20> = Vec::<DecoratedSignature>::new()
+            .try_into()
+            .expect("empty vec should fit");
+        let decorated = DecoratedSignature {
+            hint: SignatureHint([0, 0, 0, 0]),
+            signature: Signature(
+                vec![1u8, 2, 3, 4]
+                    .try_into()
+                    .expect("signature bytes should fit BytesM<64>"),
+            ),
+        };
+        let updated = push_signature(&signatures, decorated).unwrap();
+        assert_eq!(updated.len(), 1);
     }
 }

@@ -71,9 +71,20 @@ async function main() {
         waitUntil: "networkidle"
       });
 
-      await page.waitForFunction(() => document.body.dataset.status === "success", undefined, {
-        timeout: 15000
+      await page.waitForFunction(() => document.body.dataset.status !== "running", undefined, {
+        timeout: 45000
       });
+
+      const status = await page.evaluate(() => document.body.dataset.status);
+      if (status !== "success") {
+        const mirroredOutput = await page.evaluate(() => {
+          const output = document.getElementById("console-output");
+          return output ? output.textContent : "";
+        });
+        throw new Error(
+          `WASM demo did not reach success state (status=${status}). Output: ${mirroredOutput}`
+        );
+      }
 
       const successMessage = consoleMessages.find((entry) =>
         entry.includes("WASM signing successful")

@@ -13,10 +13,15 @@ sha2 = "0.10"
 stellar-strkey = "0.0.16"
 stellar-xdr = { version = "26.0.0", features = ["base64"] }
 wasm-bindgen = "0.2.105"
-sqlx = { version = "0.7", features = ["postgres", "runtime-tokio-rustls", "macros", "chrono", "uuid"] }
 dotenvy = "0.15"
 chrono = { version = "0.4", features = ["serde"] }
-uuid = { version = "1.0", features = ["v4", "serde"] }
+uuid = { version = "1.0", features = ["v4", "serde", "rng-getrandom"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# Enable getrandom v0.3 wasm support (feature unifies across the build).
+getrandom = { version = "0.3", features = ["wasm_js"] }
+# Some transitive deps use getrandom v0.4.x (e.g. hash32); enable wasm support there too.
+getrandom04 = { package = "getrandom", version = "0.4", features = ["wasm_js"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 axum = "0.8"
@@ -27,6 +32,12 @@ tokio = { version = "1", features = ["full"] }
 tower-http = { version = "0.6", features = ["cors"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+sqlx = { version = "0.7", features = ["postgres", "runtime-tokio-rustls", "macros", "chrono", "uuid"] }
+
+[dev-dependencies]
+testcontainers = "0.15"
+tokio-test = "0.4"
+rand = "0.8"
 
 [lib]
 crate-type = ["cdylib", "rlib"]

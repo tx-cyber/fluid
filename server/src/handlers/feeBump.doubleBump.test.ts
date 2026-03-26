@@ -85,6 +85,10 @@ describe("feeBumpHandler", () => {
       maxXdrSize: 10240,
       rateLimitWindowMs: 60_000,
       rateLimitMax: 5,
+      alerting: {
+        checkIntervalMs: 60_000,
+        cooldownMs: 60_000,
+      },
     };
 
     const req: any = {

@@ -11,10 +11,10 @@ use stellar_strkey::{ed25519, Strkey};
 use tokio::sync::Mutex;
 use tracing::info;
 
-use crate::{
+use crate::metrics::AppMetrics;
+use fluid_server::{
     config::{Config, HorizonSelectionStrategy},
     error::AppError,
-    metrics::AppMetrics,
 };
 
 #[derive(Clone)]
