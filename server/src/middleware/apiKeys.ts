@@ -70,6 +70,13 @@ export async function apiKeyMiddleware(
     });
 
     if (keyRecord) {
+      // Reject revoked keys immediately
+      if (!keyRecord.active) {
+        return next(
+          new AppError("API key has been revoked.", 403, "AUTH_FAILED"),
+        );
+      }
+
       const apiKeyConfig: ApiKeyConfig = {
         key: keyRecord.key,
         tenantId: keyRecord.tenantId,

@@ -1,65 +1,96 @@
-import Image from "next/image";
-
 export default function Home() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="flex flex-1 flex-col overflow-hidden bg-background text-foreground">
+      <div className="relative isolate px-6 pt-14 lg:px-8">
+        <div className="mx-auto max-w-7xl py-12">
+          <header className="mb-16 space-y-4">
+            <h1 className="text-4xl font-extrabold tracking-tight sm:text-6xl text-foreground">
+              Fluid Dashboard
+            </h1>
+            <p className="max-w-2xl text-lg opacity-80 font-medium text-foreground">
+              Simplify Stellar fee sponsorship with high-performance infrastructure.
+              Manage wallets, track transactions, and monitor network health in real-time.
+            </p>
+          </header>
+
+          <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-3">
+            {[
+              {
+                title: "Transaction Monitoring",
+                desc: "Watch fee-bump transactions as they hit the ledger with millisecond precision.",
+                val: "1.2k",
+                unit: "Today",
+                trend: "+12.5%",
+              },
+              {
+                title: "Active Fee Payers",
+                desc: "Status of your sponsored accounts and their XLM balances across networks.",
+                val: "14",
+                unit: "Active",
+                trend: "+2",
+              },
+              {
+                title: "Cost Efficiency",
+                desc: "Analyze your sponsorship savings and network fee trends over time.",
+                val: "+22%",
+                unit: "Vs Last Week",
+                trend: "Optimal",
+              },
+            ].map((stat, i) => (
+              <div
+                key={stat.title}
+                className="group relative h-full overflow-hidden rounded-3xl border border-foreground/10 bg-foreground/5 p-8 shadow-sm transition-all hover:bg-foreground/[0.08]"
+              >
+                <div className="space-y-2">
+                  <h2 className="text-xs font-bold uppercase tracking-wider opacity-60 text-foreground">
+                    {stat.title}
+                  </h2>
+                  <p className="text-sm leading-relaxed opacity-80 text-foreground">
+                    {stat.desc}
+                  </p>
+                </div>
+                <div className="mt-8 flex items-baseline justify-between gap-2">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-4xl font-black text-foreground">
+                      {stat.val}
+                    </span>
+                    <span className="text-sm font-medium opacity-60 text-foreground">
+                      {stat.unit}
+                    </span>
+                  </div>
+                  <span className="rounded-full bg-blue-500/10 px-2 py-1 text-xs font-bold text-blue-500">
+                    {stat.trend}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <section className="mt-20 overflow-hidden rounded-[2.5rem] border border-foreground/10 bg-foreground/[0.03] p-12 transition-all">
+            <div className="relative z-10 flex flex-col items-center justify-between gap-10 md:flex-row">
+              <div className="max-w-xl space-y-4">
+                <div className="inline-flex items-center gap-2 rounded-full bg-blue-500/10 px-3 py-1 text-xs font-bold text-blue-500">
+                  <span className="relative flex h-2 w-2">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75"></span>
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-500"></span>
+                  </span>
+                  New Protocol
+                </div>
+                <h3 className="text-3xl font-bold tracking-tight text-foreground">
+                  Ready to optimize?
+                </h3>
+                <p className="text-lg opacity-80 text-foreground">
+                  Try out the new multi-signer fee-bump protocol in the testing lab.
+                  Improve security and performance for your Stellar transactions.
+                </p>
+              </div>
+              <button className="flex items-center gap-2 rounded-full bg-foreground px-8 py-4 text-base font-bold text-background shadow-lg transition-all hover:opacity-90 active:scale-95">
+                Explore Tech
+              </button>
+            </div>
+          </section>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+      </div>
     </div>
   );
 }
