@@ -7,6 +7,11 @@ export interface SponsoredTransactionRecord {
   createdAt: Date;
 }
 
+export interface SponsoredTransactionTotals {
+  totalFeeStroops: number;
+  totalTransactions: number;
+}
+
 function getUtcDayRange(date: Date): { start: Date; end: Date } {
   const start = new Date(
     Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())
@@ -42,4 +47,18 @@ export async function getTenantDailySpendStroops(
     _sum: { feeStroops: true },
   });
   return Number(result._sum.feeStroops ?? 0);
+}
+
+export async function getSponsoredTransactionTotals(): Promise<SponsoredTransactionTotals> {
+  const [totalTransactions, result] = await Promise.all([
+    prisma.sponsoredTransaction.count(),
+    prisma.sponsoredTransaction.aggregate({
+      _sum: { feeStroops: true },
+    }),
+  ]);
+
+  return {
+    totalFeeStroops: Number(result._sum.feeStroops ?? 0),
+    totalTransactions,
+  };
 }
