@@ -7,11 +7,25 @@ generator client {
 
 datasource db {
   provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model SubscriptionTier {
+  id           String   @id @default(uuid())
+  name         String   @unique
+  txLimit      Int
+  rateLimit    Int
+  priceMonthly Int
+  tenants      Tenant[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
 
 model Tenant {
   id                 String            @id @default(uuid())
   name               String
+  subscriptionTierId String
+  subscriptionTier   SubscriptionTier  @relation(fields: [subscriptionTierId], references: [id])
   dailyQuotaStroops  BigInt            @default(1000000) // 0.1 XLM default
   totalCredit        BigInt            @default(0) // Total purchased credit
   webhookUrl         String?
@@ -19,16 +33,19 @@ model Tenant {
   webhookEventTypes  String?
   apiKeys            ApiKey[]
   webhookDeliveries  WebhookDelivery[]
-  quotaTopUps QuotaTopUp[]
+  quotaTopUps        QuotaTopUp[]
   payments           Payment[]
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
+
+  @@index([subscriptionTierId])
 }
 
 model ApiKey {
   id                String   @id @default(uuid())
   key               String   @unique
   prefix            String
+  name              String   @default("Default API Key")
   tenantId          String
   tenant            Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   active            Boolean  @default(true)
@@ -65,6 +82,23 @@ model QuotaTopUp {
   amountCents     Int
   quotaStroops    BigInt
   status          String   @default("pending") // pending, fulfilled, failed
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([status])
+}
+
+model Payment {
+  id              String   @id @default(uuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id])
+  stripeSessionId String   @unique
+  stripePaymentId String?
+  amountCents     Int
+  creditStroops   BigInt
+  status          String   @default("pending")
+  metadata        Json?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

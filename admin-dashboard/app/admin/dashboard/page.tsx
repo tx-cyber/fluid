@@ -8,16 +8,17 @@ import { getDashboardPageData } from "@/lib/dashboard-data";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { UsageLeaderboard } from "@/components/dashboard/UsageLeaderboard";
 import { BillingTopUp } from "@/components/dashboard/BillingTopUp";
+import { SubscriptionTierManager } from "@/components/dashboard/SubscriptionTierManager";
 import { getTenantLeaderboard } from "@/lib/transaction-history";
+import { getSubscriptionTierPageData } from "@/lib/subscription-tiers-data";
 import { SpendChart } from "@/components/dashboard/SpendChart";
-import { ConnectDeviceDialog } from "@/components/dashboard/ConnectDeviceDialog";
-import { fluidServerUrl, fluidAdminToken } from "@/lib/server-env";
-import { Coins, CheckCircle, Wallet, Zap, KeyRound } from "lucide-react";
+import { Coins, CheckCircle, Wallet, Zap } from "lucide-react";
 
 export default async function AdminDashboard() {
   const session = await auth();
   const { signers, transactions, source } = await getDashboardPageData();
   const tenantUsage = await getTenantLeaderboard();
+  const subscriptionTierData = await getSubscriptionTierPageData();
 
   return (
     <div className="min-h-screen bg-slate-100">
@@ -127,6 +128,15 @@ export default async function AdminDashboard() {
 
         <section className="mt-6">
           <BillingTopUp tenantId={session?.user?.email ?? "default"} />
+        </section>
+
+        <section className="mt-6">
+          <SubscriptionTierManager
+            tiers={subscriptionTierData.tiers}
+            tenants={subscriptionTierData.tenants}
+            initialTenant={subscriptionTierData.tenant}
+            source={subscriptionTierData.source}
+          />
         </section>
       </main>
     </div>

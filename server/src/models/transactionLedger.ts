@@ -49,16 +49,12 @@ export async function getTenantDailySpendStroops(
   return Number(result._sum.feeStroops ?? 0);
 }
 
-export async function getSponsoredTransactionTotals(): Promise<SponsoredTransactionTotals> {
-  const [totalTransactions, result] = await Promise.all([
-    prisma.sponsoredTransaction.count(),
-    prisma.sponsoredTransaction.aggregate({
-      _sum: { feeStroops: true },
-    }),
-  ]);
-
-  return {
-    totalFeeStroops: Number(result._sum.feeStroops ?? 0),
-    totalTransactions,
-  };
+export async function getTenantDailyTransactionCount(
+  tenantId: string,
+  now: Date = new Date()
+): Promise<number> {
+  const { start, end } = getUtcDayRange(now);
+  return prisma.sponsoredTransaction.count({
+    where: { tenantId, createdAt: { gte: start, lt: end } },
+  });
 }

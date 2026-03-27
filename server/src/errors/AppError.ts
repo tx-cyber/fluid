@@ -12,7 +12,9 @@ export type ErrorCode =
   | "NETWORK_MISMATCH"
   | "QUOTA_EXCEEDED"
   | "SLIPPAGE_TOO_HIGH"
-  | "SETTLEMENT_VERIFICATION_FAILED";
+  | "SETTLEMENT_VERIFICATION_FAILED"
+  | "VALIDATION_ERROR"
+  | "CONFIG_ERROR";
 
 export class AppError extends Error {
   public readonly statusCode: number;

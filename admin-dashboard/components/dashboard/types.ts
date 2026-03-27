@@ -54,14 +54,29 @@ export interface ApiKey {
   updatedAt: string;
 }
 
-export type WebhookEventType = "tx.success" | "tx.failed" | "balance.low";
+export type SubscriptionTierCode = "free" | "pro" | "enterprise";
 
-export interface WebhookTenantSettings {
-  tenantId: string;
-  tenantName: string | null;
-  webhookUrl: string | null;
-  eventTypes: WebhookEventType[];
-  updatedAt: string | null;
+export interface SubscriptionTier {
+  id: string;
+  name: "Free" | "Pro" | "Enterprise";
+  code: SubscriptionTierCode;
+  txLimit: number;
+  rateLimit: number;
+  priceMonthly: number;
+}
+
+export interface TenantTierSummary {
+  id: string;
+  name: string;
+  subscriptionTierId: string;
+  subscriptionTier: SubscriptionTier;
+}
+
+export interface SubscriptionTierPageData {
+  tiers: SubscriptionTier[];
+  tenants: TenantTierSummary[];
+  tenant: TenantTierSummary | null;
+  source: "live" | "sample";
 }
 
 export type TransactionHistorySort =

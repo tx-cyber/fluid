@@ -73,7 +73,7 @@ async function processFeeBump(
   const quotaCheck = await checkTenantDailyQuota(tenant, feeAmount);
   if (!quotaCheck.allowed) {
     throw new AppError(
-      `Daily fee sponsorship quota exceeded. Current spend: ${quotaCheck.currentSpendStroops}, Attempted: ${feeAmount}, Quota: ${quotaCheck.dailyQuotaStroops}`,
+      `Tier limit exceeded. Spend ${quotaCheck.currentSpendStroops}/${quotaCheck.dailyQuotaStroops} stroops and transactions ${quotaCheck.currentTxCount}/${quotaCheck.txLimit} today.`,
       403,
       "QUOTA_EXCEEDED"
     );
@@ -265,10 +265,13 @@ export async function feeBumpBatchHandler(
     const quotaCheck = await checkTenantDailyQuota(tenant, feeAmount);
     if (!quotaCheck.allowed) {
       res.status(403).json({
-        error: "Daily fee sponsorship quota exceeded",
+        error: "Tier limit exceeded",
         currentSpendStroops: quotaCheck.currentSpendStroops,
         attemptedFeeStroops: feeAmount,
         dailyQuotaStroops: quotaCheck.dailyQuotaStroops,
+        currentTxCount: quotaCheck.currentTxCount,
+        projectedTxCount: quotaCheck.projectedTxCount,
+        txLimit: quotaCheck.txLimit,
       });
       return;
     }

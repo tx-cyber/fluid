@@ -3,60 +3,37 @@ import "dotenv/config";
 import cors from "cors";
 import express, { NextFunction, Request, Response } from "express";
 import rateLimit from "express-rate-limit";
+import { loadConfig } from "./config";
+import { AppError } from "./errors/AppError";
 import {
   listApiKeysHandler,
   revokeApiKeyHandler,
   upsertApiKeyHandler,
 } from "./handlers/adminApiKeys";
 import {
-  listWebhookSettingsHandler,
-  updateWebhookSettingsHandler,
-} from "./handlers/adminWebhooks";
+  listSubscriptionTiersHandler,
+  updateTenantSubscriptionTierHandler,
+} from "./handlers/adminSubscriptionTiers";
 import {
   addSignerHandler,
   listSignersHandler,
   removeSignerHandler,
 } from "./handlers/adminSigners";
 import { feeBumpBatchHandler, feeBumpHandler } from "./handlers/feeBump";
-import {
-  createCheckoutSessionHandler,
-  stripeWebhookHandler,
-} from "./handlers/stripe";
-import {
-  getWebhookSettingsHandler,
-  updateWebhookHandler,
-} from "./handlers/tenantWebhook";
+import { createCheckoutSessionHandler, stripeWebhookHandler } from "./handlers/stripe";
 import {
   getHorizonFailoverClient,
   initializeHorizonFailoverClient,
 } from "./horizon/failoverClient";
-import { AppError } from "./errors/AppError";
 import { apiKeyMiddleware } from "./middleware/apiKeys";
-import {
-  createGlobalErrorHandler,
-  notFoundHandler,
-} from "./middleware/errorHandler";
+import { globalErrorHandler, notFoundHandler } from "./middleware/errorHandler";
 import { apiKeyRateLimit } from "./middleware/rateLimit";
+import { tenantTierTxLimit } from "./middleware/txLimit";
 import { AlertService } from "./services/alertService";
-import {
-  hydratePersistedSigners,
-  listAdminSigners,
-} from "./services/signerRegistry";
-import {
-  loadSlackNotifierOptionsFromEnv,
-  SlackNotifier,
-} from "./services/slackNotifier";
-import { PagerDutyNotifier } from "./services/pagerDutyNotifier";
-import { initializeFcmNotifier } from "./services/fcmNotifier";
-import {
-  listDeviceTokensHandler,
-  registerDeviceTokenHandler,
-  deleteDeviceTokenHandler,
-} from "./handlers/adminDeviceTokens";
+import { hydratePersistedSigners, listAdminSigners } from "./services/signerRegistry";
 import { createLogger, serializeError } from "./utils/logger";
 import redisClient from "./utils/redis";
 import { RedisRateLimitStore } from "./utils/redisRateLimitStore";
-import { loadConfig } from "./config";
 import { initializeBalanceMonitor } from "./workers/balanceMonitor";
 import {
   getLedgerMonitor,
@@ -66,7 +43,7 @@ import { initializeIncidentMonitor } from "./workers/incidentMonitor";
 import { transactionStore } from "./workers/transactionStore";
 import { healthHandler } from "./handlers/health";
 
-const logger = createLogger({ component: "server" });
+dotenv.config();
 
 const app = express();
 app.use(express.json());
@@ -186,9 +163,21 @@ app.post(
   "/fee-bump",
   apiKeyMiddleware,
   apiKeyRateLimit,
+  tenantTierTxLimit,
   limiter,
   (req: Request, res: Response, next: NextFunction) => {
-    feeBumpHandler(req, res, next, config);
+    void feeBumpHandler(req, res, config, next);
+  },
+);
+
+app.post(
+  "/fee-bump/batch",
+  apiKeyMiddleware,
+  apiKeyRateLimit,
+  tenantTierTxLimit,
+  limiter,
+  (req: Request, res: Response, next: NextFunction) => {
+    feeBumpBatchHandler(req, res, next, config);
   },
 );
 
@@ -232,8 +221,8 @@ app.get("/admin/api-keys", listApiKeysHandler);
 app.post("/admin/api-keys", upsertApiKeyHandler);
 app.patch("/admin/api-keys/:key/revoke", revokeApiKeyHandler);
 app.delete("/admin/api-keys/:key", revokeApiKeyHandler);
-app.get("/admin/webhooks", listWebhookSettingsHandler);
-app.patch("/admin/webhooks/:tenantId", updateWebhookSettingsHandler);
+app.get("/admin/subscription-tiers", listSubscriptionTiersHandler);
+app.patch("/admin/tenants/:tenantId/subscription-tier", updateTenantSubscriptionTierHandler);
 app.get("/admin/signers", listSignersHandler(config));
 app.post("/admin/signers", addSignerHandler(config));
 app.delete("/admin/signers/:publicKey", removeSignerHandler(config));

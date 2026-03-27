@@ -6,12 +6,22 @@ import {
   setCachedApiKey,
   invalidateApiKeyCache,
 } from "../utils/redis";
+import {
+  SubscriptionTierCode,
+  SubscriptionTierName,
+  toTierCode,
+} from "../models/subscriptionTier";
 
 export interface ApiKeyConfig {
   key: string;
   tenantId: string;
   name: string;
-  tier: "free" | "pro";
+  tier: SubscriptionTierCode;
+  tierName: SubscriptionTierName;
+  tierId: string;
+  txLimit: number;
+  rateLimit: number;
+  priceMonthly: number;
   maxRequests: number;
   windowMs: number;
   dailyQuotaStroops: number;
@@ -67,6 +77,13 @@ export async function apiKeyMiddleware(
   try {
     const keyRecord = await prisma.apiKey.findUnique({
       where: { key: apiKey },
+      include: {
+        tenant: {
+          include: {
+            subscriptionTier: true,
+          },
+        },
+      },
     });
 
     if (keyRecord) {
@@ -77,12 +94,21 @@ export async function apiKeyMiddleware(
         );
       }
 
+      const tierRecord = keyRecord.tenant?.subscriptionTier;
+      const resolvedTierName = (tierRecord?.name ?? "Free") as SubscriptionTierName;
+      const resolvedRateLimit = tierRecord?.rateLimit ?? keyRecord.maxRequests;
+
       const apiKeyConfig: ApiKeyConfig = {
         key: keyRecord.key,
         tenantId: keyRecord.tenantId,
-        name: keyRecord.name,
-        tier: keyRecord.tier as "free" | "pro",
-        maxRequests: keyRecord.maxRequests,
+        name: keyRecord.name ?? keyRecord.tenant?.name ?? keyRecord.prefix,
+        tier: toTierCode(resolvedTierName),
+        tierName: resolvedTierName,
+        tierId: tierRecord?.id ?? `tier-${toTierCode(resolvedTierName)}`,
+        txLimit: tierRecord?.txLimit ?? 10,
+        rateLimit: resolvedRateLimit,
+        priceMonthly: tierRecord?.priceMonthly ?? 0,
+        maxRequests: resolvedRateLimit,
         windowMs: keyRecord.windowMs,
         dailyQuotaStroops: Number(keyRecord.dailyQuotaStroops),
       };

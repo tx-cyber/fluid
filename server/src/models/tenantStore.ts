@@ -1,10 +1,15 @@
 import { ApiKeyConfig } from "../middleware/apiKeys";
+import { SubscriptionTierCode, SubscriptionTierName } from "./subscriptionTier";
 
 export interface Tenant {
   id: string;
   apiKey: string;
   name: string;
-  tier: ApiKeyConfig["tier"];
+  tier: SubscriptionTierCode;
+  tierName: SubscriptionTierName;
+  txLimit: number;
+  rateLimit: number;
+  priceMonthly: number;
   dailyQuotaStroops: number;
 }
 
@@ -18,6 +23,10 @@ export function syncTenantFromApiKey(apiKeyConfig: ApiKeyConfig): Tenant {
       ...existingTenant,
       name: apiKeyConfig.name,
       tier: apiKeyConfig.tier,
+      tierName: apiKeyConfig.tierName,
+      txLimit: apiKeyConfig.txLimit,
+      rateLimit: apiKeyConfig.rateLimit,
+      priceMonthly: apiKeyConfig.priceMonthly,
       dailyQuotaStroops: apiKeyConfig.dailyQuotaStroops,
     };
 
@@ -30,6 +39,10 @@ export function syncTenantFromApiKey(apiKeyConfig: ApiKeyConfig): Tenant {
     apiKey: apiKeyConfig.key,
     name: apiKeyConfig.name,
     tier: apiKeyConfig.tier,
+    tierName: apiKeyConfig.tierName,
+    txLimit: apiKeyConfig.txLimit,
+    rateLimit: apiKeyConfig.rateLimit,
+    priceMonthly: apiKeyConfig.priceMonthly,
     dailyQuotaStroops: apiKeyConfig.dailyQuotaStroops,
   };
 

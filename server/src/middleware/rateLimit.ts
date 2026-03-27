@@ -42,6 +42,7 @@ export async function apiKeyRateLimit(
   }
 
   const windowSeconds = Math.max(1, Math.ceil(apiKeyConfig.windowMs / 1000));
+  const rateLimit = apiKeyConfig.rateLimit;
 
   // Try Redis atomic counter first.
   try {
@@ -51,15 +52,16 @@ export async function apiKeyRateLimit(
     if (result) {
       const { count, ttl } = result;
 
-      res.setHeader("X-RateLimit-Limit", apiKeyConfig.maxRequests.toString());
-      res.setHeader("X-RateLimit-Remaining", Math.max(apiKeyConfig.maxRequests - count, 0).toString());
+      res.setHeader("X-RateLimit-Limit", rateLimit.toString());
+      res.setHeader("X-RateLimit-Remaining", Math.max(rateLimit - count, 0).toString());
       res.setHeader("X-RateLimit-Reset", Math.ceil((Date.now() / 1000) + ttl).toString());
 
-      if (count > apiKeyConfig.maxRequests) {
+      if (count > rateLimit) {
         res.status(429).json({
-          error: `API key rate limit exceeded for ${maskApiKey(apiKeyConfig.key)} (${apiKeyConfig.tier} tier).`,
+          error: `API key rate limit exceeded for ${maskApiKey(apiKeyConfig.key)} (${apiKeyConfig.tierName} tier).`,
           tier: apiKeyConfig.tier,
-          limit: apiKeyConfig.maxRequests,
+          tierName: apiKeyConfig.tierName,
+          limit: rateLimit,
           retryAfterSeconds: Math.max(ttl, 0),
         });
         return;
@@ -77,18 +79,19 @@ export async function apiKeyRateLimit(
   const usageEntry = getUsageEntry(apiKeyConfig);
   const now = Date.now();
 
-  res.setHeader("X-RateLimit-Limit", apiKeyConfig.maxRequests.toString());
+  res.setHeader("X-RateLimit-Limit", rateLimit.toString());
   res.setHeader(
     "X-RateLimit-Remaining",
-    Math.max(apiKeyConfig.maxRequests - usageEntry.count - 1, 0).toString()
+    Math.max(rateLimit - usageEntry.count - 1, 0).toString()
   );
   res.setHeader("X-RateLimit-Reset", Math.ceil(usageEntry.resetTime / 1000).toString());
 
-  if (usageEntry.count >= apiKeyConfig.maxRequests) {
+  if (usageEntry.count >= rateLimit) {
     res.status(429).json({
-      error: `API key rate limit exceeded for ${maskApiKey(apiKeyConfig.key)} (${apiKeyConfig.tier} tier).`,
+      error: `API key rate limit exceeded for ${maskApiKey(apiKeyConfig.key)} (${apiKeyConfig.tierName} tier).`,
       tier: apiKeyConfig.tier,
-      limit: apiKeyConfig.maxRequests,
+      tierName: apiKeyConfig.tierName,
+      limit: rateLimit,
       retryAfterSeconds: Math.max(Math.ceil((usageEntry.resetTime - now) / 1000), 0),
     });
     return;
