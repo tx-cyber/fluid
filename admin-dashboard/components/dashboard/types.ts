@@ -79,6 +79,29 @@ export interface SubscriptionTierPageData {
   source: "live" | "sample";
 }
 
+export type WebhookEventType = "tx.success" | "tx.failed" | "balance.low";
+
+export interface WebhookTenantSettings {
+  tenantId: string;
+  tenantName: string | null;
+  webhookUrl: string | null;
+  eventTypes: WebhookEventType[];
+  updatedAt: string | null;
+}
+
+export interface WebhookDlqItem {
+  id: string;
+  tenantId: string;
+  tenantName: string;
+  deliveryId: string;
+  url: string;
+  payload: string;
+  lastError: string | null;
+  retryCount: number;
+  failedAt: string;
+  expiresAt: string;
+}
+
 export type TransactionHistorySort =
   | "time_desc"
   | "time_asc"
