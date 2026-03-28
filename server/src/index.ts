@@ -21,6 +21,7 @@ import {
 } from "./handlers/adminSigners";
 import { badgeHandler } from "./handlers/badge";
 import { feeBumpBatchHandler, feeBumpHandler } from "./handlers/feeBump";
+import { playgroundFeeBumpHandler } from "./handlers/playground";
 import { createCheckoutSessionHandler, stripeWebhookHandler } from "./handlers/stripe";
 import {
   getHorizonFailoverClient,
@@ -162,6 +163,24 @@ app.get("/health", (req: Request, res: Response) => {
     },
   });
 });
+
+// Playground fee-bump endpoint — open CORS, dedicated IP rate limit (10/min)
+const playgroundLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 10,
+  message: { error: "Playground rate limit reached. Try again in a minute.", code: "RATE_LIMITED" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.post(
+  "/playground/fee-bump",
+  cors({ origin: "*" }), // intentionally open: playground is public
+  playgroundLimiter,
+  (req: Request, res: Response, next: NextFunction) => {
+    void playgroundFeeBumpHandler(req, res, next);
+  },
+);
 
 // Fee bump endpoint
 app.post(

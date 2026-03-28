@@ -2,7 +2,7 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { AnimatePresence, motion } from "framer-motion";
 import { WifiOff } from "lucide-react";
-import { DashboardLayout } from "./dashboard";
+import { DashboardLayout, ApiPlayground } from "./dashboard";
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
@@ -94,37 +94,44 @@ function App() {
       activeHref={active}
       onNavigate={(href) => setActive(href)}
       userName="Emmo00"
-      title="Overview"
+      title={active === "/playground" ? "API Playground" : "Overview"}
     >
       <OfflineBanner />
-      <section
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(148px, 1fr))",
-          gap: 12,
-        }}
-      >
-        <DemoCard title="Sponsored Tx" value="1,284" />
-        <DemoCard title="Active API Keys" value="6" />
-        <DemoCard title="Success Rate" value="99.2%" />
-        <DemoCard title="Avg. Finality" value="4.1s" />
-      </section>
 
-      <section
-        style={{
-          marginTop: 14,
-          border: "1px solid rgba(226, 232, 240, 0.15)",
-          borderRadius: 20,
-          padding: 14,
-          background:
-            "linear-gradient(170deg, rgba(15, 23, 42, 0.52) 0%, rgba(30, 41, 59, 0.42) 100%)",
-        }}
-      >
-        <h2 style={{ margin: 0, color: "#f8fafc", fontSize: 16 }}>Recent Activity</h2>
-        <p style={{ margin: "8px 0 0", color: "rgba(203, 213, 225, 0.8)" }}>
-          Fee sponsorship throughput is stable and all monitored keys are healthy.
-        </p>
-      </section>
+      {active === "/playground" ? (
+        <ApiPlayground />
+      ) : (
+        <>
+          <section
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(148px, 1fr))",
+              gap: 12,
+            }}
+          >
+            <DemoCard title="Sponsored Tx" value="1,284" />
+            <DemoCard title="Active API Keys" value="6" />
+            <DemoCard title="Success Rate" value="99.2%" />
+            <DemoCard title="Avg. Finality" value="4.1s" />
+          </section>
+
+          <section
+            style={{
+              marginTop: 14,
+              border: "1px solid rgba(226, 232, 240, 0.15)",
+              borderRadius: 20,
+              padding: 14,
+              background:
+                "linear-gradient(170deg, rgba(15, 23, 42, 0.52) 0%, rgba(30, 41, 59, 0.42) 100%)",
+            }}
+          >
+            <h2 style={{ margin: 0, color: "#f8fafc", fontSize: 16 }}>Recent Activity</h2>
+            <p style={{ margin: "8px 0 0", color: "rgba(203, 213, 225, 0.8)" }}>
+              Fee sponsorship throughput is stable and all monitored keys are healthy.
+            </p>
+          </section>
+        </>
+      )}
     </DashboardLayout>
   );
 }
