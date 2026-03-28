@@ -40,12 +40,22 @@ export interface AlertEmailConfig {
   to: string[];
 }
 
+export interface TwilioConfig {
+  accountSid: string;
+  authToken: string;
+  fromNumber: string;
+  toNumber: string;
+  testMode?: boolean;
+}
+
 export interface AlertingConfig {
   lowBalanceThresholdXlm?: number;
+  criticalBalanceThresholdXlm?: number;
   checkIntervalMs: number;
   cooldownMs: number;
   slackWebhookUrl?: string;
   email?: AlertEmailConfig;
+  twilio?: TwilioConfig;
 }
 
 export interface Config {
@@ -155,10 +165,33 @@ function loadAlertEmailConfig(): AlertEmailConfig | undefined {
   };
 }
 
+function loadTwilioConfig(): TwilioConfig | undefined {
+  const accountSid = process.env.TWILIO_ACCOUNT_SID?.trim();
+  const authToken = process.env.TWILIO_AUTH_TOKEN?.trim();
+  const fromNumber = process.env.TWILIO_FROM?.trim();
+  const toNumber = process.env.ALERT_PHONE_NUMBER?.trim();
+  const testMode = process.env.TWILIO_TEST_MODE === "true";
+
+  if (!accountSid || !authToken || !fromNumber || !toNumber) {
+    return undefined;
+  }
+
+  return {
+    accountSid,
+    authToken,
+    fromNumber,
+    toNumber,
+    testMode,
+  };
+}
+
 function loadAlertingConfig(): AlertingConfig {
   return {
     lowBalanceThresholdXlm: parseOptionalNumber(
       process.env.FLUID_LOW_BALANCE_THRESHOLD_XLM,
+    ),
+    criticalBalanceThresholdXlm: parseOptionalNumber(
+      process.env.CRITICAL_BALANCE_XLM,
     ),
     checkIntervalMs: parsePositiveInt(
       process.env.FLUID_LOW_BALANCE_CHECK_INTERVAL_MS,
@@ -171,6 +204,7 @@ function loadAlertingConfig(): AlertingConfig {
     slackWebhookUrl:
       process.env.FLUID_ALERT_SLACK_WEBHOOK_URL?.trim() || undefined,
     email: loadAlertEmailConfig(),
+    twilio: loadTwilioConfig(),
   };
 }
 
