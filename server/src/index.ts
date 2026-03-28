@@ -11,6 +11,11 @@ import {
   upsertApiKeyHandler,
 } from "./handlers/adminApiKeys";
 import {
+  deleteDeviceTokenHandler,
+  listDeviceTokensHandler,
+  registerDeviceTokenHandler,
+} from "./handlers/adminDeviceTokens";
+import {
   listSubscriptionTiersHandler,
   updateTenantSubscriptionTierHandler,
 } from "./handlers/adminSubscriptionTiers";
@@ -20,17 +25,24 @@ import {
   removeSignerHandler,
 } from "./handlers/adminSigners";
 import { feeBumpBatchHandler, feeBumpHandler } from "./handlers/feeBump";
+import {
+  registerHandler,
+  registrationRateLimit,
+  verifyEmailHandler,
+} from "./handlers/registration";
 import { createCheckoutSessionHandler, stripeWebhookHandler } from "./handlers/stripe";
 import {
   getHorizonFailoverClient,
   initializeHorizonFailoverClient,
 } from "./horizon/failoverClient";
 import { apiKeyMiddleware } from "./middleware/apiKeys";
-import { globalErrorHandler, notFoundHandler } from "./middleware/errorHandler";
+import { createGlobalErrorHandler, notFoundHandler } from "./middleware/errorHandler";
 import { apiKeyRateLimit } from "./middleware/rateLimit";
 import { tenantTierTxLimit } from "./middleware/txLimit";
 import { AlertService } from "./services/alertService";
-import { hydratePersistedSigners, listAdminSigners } from "./services/signerRegistry";
+import { initializeFcmNotifier } from "./services/fcmNotifier";
+import { PagerDutyNotifier } from "./services/pagerDutyNotifier";
+import { loadSlackNotifierOptionsFromEnv, SlackNotifier } from "./services/slackNotifier";
 import { createLogger, serializeError } from "./utils/logger";
 import redisClient from "./utils/redis";
 import { RedisRateLimitStore } from "./utils/redisRateLimitStore";
@@ -41,9 +53,8 @@ import {
 } from "./workers/ledgerMonitor";
 import { initializeIncidentMonitor } from "./workers/incidentMonitor";
 import { transactionStore } from "./workers/transactionStore";
-import { healthHandler } from "./handlers/health";
 
-dotenv.config();
+const logger = createLogger({ name: "fluid-server" });
 
 const app = express();
 app.use(express.json());
@@ -166,7 +177,7 @@ app.post(
   tenantTierTxLimit,
   limiter,
   (req: Request, res: Response, next: NextFunction) => {
-    void feeBumpHandler(req, res, config, next);
+    void feeBumpHandler(req, res, next, config);
   },
 );
 
@@ -216,6 +227,14 @@ app.post(
     }
   },
 );
+
+// Self-service tenant registration (public, rate-limited)
+app.post("/auth/register", registrationRateLimit, (req: Request, res: Response, next: NextFunction) => {
+  void registerHandler(req, res, next);
+});
+app.post("/auth/verify-email", (req: Request, res: Response, next: NextFunction) => {
+  void verifyEmailHandler(req, res, next);
+});
 
 app.get("/admin/api-keys", listApiKeysHandler);
 app.post("/admin/api-keys", upsertApiKeyHandler);
