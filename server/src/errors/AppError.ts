@@ -15,7 +15,9 @@ export type ErrorCode =
   | "SETTLEMENT_VERIFICATION_FAILED"
   | "UNSUPPORTED_ASSET"
   | "VALIDATION_ERROR"
-  | "CONFIG_ERROR";
+  | "CONFIG_ERROR"
+  | "EVM_SPONSOR_FAILED"
+  | "SOLANA_SPONSOR_FAILED";
 
 export class AppError extends Error {
   public readonly statusCode: number;

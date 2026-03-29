@@ -2,9 +2,10 @@ import { z } from "zod";
 
 export const FeeBumpSchema = z
   .object({
-    xdr: z
-      .string()
-      .min(1, "xdr field is required and must be a non-empty string"),
+    chainId: z.enum(["stellar", "evm", "solana"]).default("stellar"),
+    xdr: z.string().optional(), // Stellar
+    userOp: z.any().optional(), // EVM
+    transactionB64: z.string().optional(), // Solana
     submit: z.boolean().optional(),
     token: z.string().optional(),
     maxSlippage: z.number().min(0).max(100).optional(),
