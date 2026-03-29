@@ -16,6 +16,8 @@ model SubscriptionTier {
   rateLimit    Int
   priceMonthly Int
   tenants      Tenant[]
+  tierAdjustmentsFrom TierAdjustment[] @relation("TierAdjustmentFromTier")
+  tierAdjustmentsTo   TierAdjustment[] @relation("TierAdjustmentToTier")
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }
@@ -36,6 +38,8 @@ model Tenant {
   quotaTopUps            QuotaTopUp[]
   payments               Payment[]
   sponsoredTransactions  SponsoredTransaction[]
+  usageStats             TenantUsageStats[]
+  tierAdjustments        TierAdjustment[]
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
 
@@ -260,4 +264,44 @@ model ChainRegistry {
   updatedAt         DateTime @updatedAt
 
   @@index([enabled])
+}
+
+// Tracks daily usage statistics for each tenant
+model TenantUsageStats {
+  id            String   @id @default(uuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  date          DateTime @default(now()) // UTC date for the stats
+  requestCount  Int      @default(0)
+  violationCount Int     @default(0) // Rate limit violations
+  burstScore    Float    @default(0) // Burst behavior score (0-1)
+  avgRequestRate Float   @default(0) // Average requests per minute
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([tenantId, date])
+  @@index([date])
+  @@index([tenantId])
+}
+
+// Tracks rate limit tier adjustments and audit trail
+model TierAdjustment {
+  id              String   @id @default(uuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  fromTierId      String
+  fromTier        SubscriptionTier @relation(fields: [fromTierId], references: [id])
+  toTierId        String
+  toTier          SubscriptionTier @relation("TierAdjustmentToTier", fields: [toTierId], references: [id])
+  reason          String   // "auto_upgrade", "admin_override", "violation_demotion"
+  violationFreeDays Int    @default(0) // Number of days without violations
+  avgUsageScore   Float    @default(0) // 30-day average usage score
+  autoAdjusted    Boolean  @default(false) // Whether this was an automatic adjustment
+  adjustedBy      String?  // Admin user ID if manual override
+  metadata        String?  // JSON blob for additional context
+  createdAt       DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([createdAt])
+  @@index([autoAdjusted])
 }

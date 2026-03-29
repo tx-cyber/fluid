@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from "express";
 import { ApiKeyConfig, maskApiKey } from "./apiKeys";
 import { incrWithExpiry } from "../utils/redis";
+import { TenantUsageTracker } from "../services/tenantUsageTracker";
 
 // Fallback in-memory bucket if Redis is unavailable.
 interface UsageEntry {
@@ -9,6 +10,7 @@ interface UsageEntry {
 }
 
 const usageByApiKey = new Map<string, UsageEntry>();
+const usageTracker = new TenantUsageTracker();
 
 function getUsageEntry(apiKeyConfig: ApiKeyConfig): UsageEntry {
   const now = Date.now();
@@ -57,6 +59,9 @@ export async function apiKeyRateLimit(
       res.setHeader("X-RateLimit-Reset", Math.ceil((Date.now() / 1000) + ttl).toString());
 
       if (count > rateLimit) {
+        // Record violation for intelligent rate limiting
+        usageTracker.recordViolation(apiKeyConfig.tenantId).catch(() => { }); // Don't block on errors
+
         res.status(429).json({
           error: `API key rate limit exceeded for ${maskApiKey(apiKeyConfig.key)} (${apiKeyConfig.tierName} tier).`,
           tier: apiKeyConfig.tier,
@@ -66,6 +71,9 @@ export async function apiKeyRateLimit(
         });
         return;
       }
+
+      // Record successful request for intelligent rate limiting
+      usageTracker.recordRequest(apiKeyConfig.tenantId).catch(() => { }); // Don't block on errors
 
       // allowed
       next();
@@ -87,6 +95,9 @@ export async function apiKeyRateLimit(
   res.setHeader("X-RateLimit-Reset", Math.ceil(usageEntry.resetTime / 1000).toString());
 
   if (usageEntry.count >= rateLimit) {
+    // Record violation for intelligent rate limiting
+    usageTracker.recordViolation(apiKeyConfig.tenantId).catch(() => { }); // Don't block on errors
+
     res.status(429).json({
       error: `API key rate limit exceeded for ${maskApiKey(apiKeyConfig.key)} (${apiKeyConfig.tierName} tier).`,
       tier: apiKeyConfig.tier,
@@ -96,6 +107,9 @@ export async function apiKeyRateLimit(
     });
     return;
   }
+
+  // Record successful request for intelligent rate limiting
+  usageTracker.recordRequest(apiKeyConfig.tenantId).catch(() => { }); // Don't block on errors
 
   usageEntry.count += 1;
   next();
