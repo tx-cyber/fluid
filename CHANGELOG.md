@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/Stellar-Fluid/fluid/compare/v1.3.0...v1.4.0) (2026-03-29)
+
+
+### Features
+
+* add admin analytics and fee estimation flows ([3e1937e](https://github.com/Stellar-Fluid/fluid/commit/3e1937e24987024f29dc2b921b654e2ca5de840f))
+
 # [1.3.0](https://github.com/Stellar-Fluid/fluid/compare/v1.2.0...v1.3.0) (2026-03-28)
 
 
