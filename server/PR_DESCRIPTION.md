@@ -1,46 +1,33 @@
 ## Title
-feat: implement network isolation for transactions
+feat: add cross-chain EVM settlement for Stellar fee sponsorship
 
 ## Description
 
-This PR adds network isolation functionality to ensure that incoming XDR transactions are validated against the server's configured Stellar network passphrase. This prevents users from accidentally submitting Mainnet transactions to a Testnet server (or vice versa), which could lead to confusion and unnecessary fee expenditure on the wrong ledger.
+This PR adds a Phase 11 multi-chain settlement path so enterprise tenants can pay sponsorship fees in an EVM ERC-20 token, then have Fluid release the Stellar fee-bump after the payment confirms on-chain.
 
-### Changes Made
+### What changed
 
-1. **Network Verification Utility** (`server/src/utils/networkVerification.ts`)
-   - Created `verifyXdrNetwork()` function that validates XDR transactions against the server's configured network
-   - Uses `StellarSdk.TransactionBuilder.fromXDR` with different passphrases to identify the network
-   - Returns clear error messages: "Network mismatch: XDR is for [Network] but server is configured for [Network]"
+1. Added `evmSettlement` request support on `/fee-bump` and return an `awaiting_evm_payment` response with the required payment details.
+2. Introduced a durable `CrossChainSettlement` model and migration to track queued payments, confirmations, settlement success, and refund outcomes.
+3. Added an EVM settlement service that:
+   - polls ERC-20 `Transfer` logs for the expected payer, token, recipient, and amount
+   - promotes confirmed payments into Stellar fee-bump execution
+   - sends an ERC-20 refund if Stellar settlement fails after EVM confirmation
+4. Documented the new EVM environment variables in `.env.example`.
+5. Extended Swagger docs for the new request and response shape.
 
-2. **Integration in feeBumpHandler** (`server/src/handlers/feeBump.ts`)
-   - Added network verification check early in the handler (after XDR parsing)
-   - Rejects mismatched transactions with 400 Bad Request and `NETWORK_MISMATCH` error code
+### Atomicity model
 
-3. **Error Code Addition** (`server/src/errors/AppError.ts`)
-   - Added `NETWORK_MISMATCH` to the `ErrorCode` type
+Fluid now uses an application-level atomic settlement protocol:
 
-4. **Tests**
-   - Unit tests for network verification utility
-   - Integration tests verifying:
-     - Mainnet XDR rejected by Testnet server ✓
-     - Testnet XDR rejected by Mainnet server ✓
-     - Testnet XDR accepted by Testnet server ✓
+- queue the Stellar bump first
+- wait for the EVM payment confirmation
+- release the Stellar fee-bump
+- if Stellar submission fails, issue an ERC-20 refund from the configured refund sender
 
-### Additional Fix
-- Fixed a pre-existing bug by adding missing `await` to `checkTenantDailyQuota()` call
+### Verification
 
-### Acceptance Criteria Met
-- ✓ Server identifies the network of the incoming XDR
-- ✓ Rejects the request if the XDR network does not match STELLAR_NETWORK_PASSPHRASE
-- ✓ Returns 400 Bad Request with descriptive error message
-- ✓ Network verification utility created
-- ✓ Integration in feeBumpHandler completed
-- ✓ Tests verifying Mainnet XDR rejection by Testnet server
-
-### Example Error Response
-```json
-{
-  "error": "Network mismatch: XDR is for Public Network (Mainnet) but server is configured for Test Network (Testnet)",
-  "code": "NETWORK_MISMATCH",
-  "statusCode": 400
-}
+- Added tests for queued EVM settlement responses
+- Added tests for confirmed payment -> Stellar settlement
+- Added tests for Stellar failure -> EVM refund
+- Re-ran related fee-bump tests successfully

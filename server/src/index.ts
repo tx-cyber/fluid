@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import cors from "cors";
 import express, { NextFunction, Request, Response } from "express";
 import rateLimit from "express-rate-limit";
+import swaggerUi from "swagger-ui-express";
 import { loadConfig } from "./config";
 import { AppError } from "./errors/AppError";
 import {
@@ -72,58 +73,28 @@ import prisma from "./utils/db";
 import { createLogger, serializeError } from "./utils/logger";
 import redisClient from "./utils/redis";
 import { RedisRateLimitStore } from "./utils/redisRateLimitStore";
+import { swaggerSpec } from "./swagger";
 import { initializeBalanceMonitor } from "./workers/balanceMonitor";
 import { initializeIncidentMonitor } from "./workers/incidentMonitor";
 import {
   getLedgerMonitor,
   initializeLedgerMonitor,
 } from "./workers/ledgerMonitor";
-import { initializeIncidentMonitor } from "./workers/incidentMonitor";
-import { initializeTreasuryRefill } from "./workers/treasuryRefill";
-import { initializeDigestWorker } from "./workers/digestWorker";
-import { transactionStore } from "./workers/transactionStore";
 import { healthHandler } from "./handlers/health";
-import {
-  listNotificationsHandler,
-  createNotificationHandler,
-  markReadHandler,
-  markAllReadHandler,
-  notificationSseHandler,
-} from "./handlers/adminNotifications";
 import {
   digestUnsubscribeHandler,
   sendDigestNowHandler,
 } from "./handlers/digest";
-  deleteDeviceTokenHandler,
-  listDeviceTokensHandler,
-  registerDeviceTokenHandler,
-} from "./handlers/adminDeviceTokens";
-import {
-  SlackNotifier,
-  loadSlackNotifierOptionsFromEnv,
-} from "./services/slackNotifier";
-import { PagerDutyNotifier } from "./services/pagerDutyNotifier";
-import { initializeFcmNotifier } from "./services/fcmNotifier";
 import { initializeFeeManager } from "./services/feeManager";
 import { listTransactionsHandler } from "./handlers/adminTransactions";
 import { getSpendForecastHandler } from "./handlers/adminAnalytics";
 import { getFeeMultiplierHandler } from "./handlers/adminFeeMultiplier";
 import { estimateFeeHandler } from "./handlers/estimate";
+import { initializeDigestWorker } from "./workers/digestWorker";
+import { transactionStore } from "./workers/transactionStore";
+import { initializeTreasuryRefill } from "./workers/treasuryRefill";
 
 dotenv.config();
-const logger = createLogger({ component: "server" });
-
-const app = express();
-app.use(express.json());
-
-// Swagger UI — available at /docs
-app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
-// Raw OpenAPI JSON spec
-app.get("/docs.json", (_req: Request, res: Response) => {
-  res.setHeader("Content-Type", "application/json");
-  res.send(swaggerSpec);
-});
-
 const logger = createLogger({ component: "server" });
 const config = loadConfig();
 const feeManager = initializeFeeManager(config);
@@ -143,6 +114,14 @@ const alertService = new AlertService(config.alerting, slackNotifier, {
 
 const app = express();
 app.use(express.json());
+
+// Swagger UI — available at /docs
+app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+// Raw OpenAPI JSON spec
+app.get("/docs.json", (_req: Request, res: Response) => {
+  res.setHeader("Content-Type", "application/json");
+  res.send(swaggerSpec);
+});
 
 // Use Redis-backed store for global IP rate limiting. Falls back to memory store if Redis unavailable.
 const windowSeconds = Math.max(1, Math.ceil(config.rateLimitWindowMs / 1000));

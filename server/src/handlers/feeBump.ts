@@ -16,6 +16,10 @@ import { transactionStore } from "../workers/transactionStore";
 import { prisma } from "../utils/db";
 import { classifyTransactionCategory } from "../services/transactionCategorizer";
 import { getFeeManager } from "../services/feeManager";
+import {
+  getCrossChainSettlementService,
+  SettlementExecutor,
+} from "../services/crossChainSettlement";
 
 /**
  * @openapi
@@ -170,11 +174,27 @@ import { getFeeManager } from "../services/feeManager";
  */
 export interface FeeBumpResponse {
   xdr: string;
-  status: "ready" | "submitted";
+  status: "ready" | "submitted" | "awaiting_evm_payment";
   hash?: string;
   fee_payer: string;
+  settlement_id?: string;
+  evm_payment?: {
+    chain_id: number;
+    token_address: string;
+    amount: string;
+    payer_address: string;
+    recipient_address: string;
+    confirmations_required: number;
+  };
   submitted_via?: string;
   submission_attempts?: number;
+}
+
+interface PreparedFeeBump {
+  innerTransaction: Transaction;
+  feeAmount: number;
+  category: string;
+  innerTxHash: string;
 }
 
 async function maybeNotifyMilestones(): Promise<void> {
@@ -185,13 +205,7 @@ async function maybeNotifyMilestones(): Promise<void> {
   }
 }
 
-async function processFeeBump(
-  xdr: string,
-  submit: boolean,
-  config: Config,
-  tenant: Tenant,
-  feePayerAccount: FeePayerAccount
-): Promise<FeeBumpResponse> {
+function parseInnerTransaction(xdr: string, config: Config): Transaction {
   let innerTransaction: Transaction;
 
   try {
@@ -219,7 +233,11 @@ async function processFeeBump(
     );
   }
 
-  const operationCount = innerTransaction.operations?.length || 0;
+  return innerTransaction;
+}
+
+function prepareFeeBump(xdr: string, config: Config): PreparedFeeBump {
+  const innerTransaction = parseInnerTransaction(xdr, config);
   const dynamicFeeMultiplier =
     getFeeManager()?.getMultiplier() ?? config.feeMultiplier;
   const feeAmount = calculateFeeBumpFee(
@@ -230,28 +248,47 @@ async function processFeeBump(
   const category = classifyTransactionCategory(
     innerTransaction.operations as Array<{ type?: string }>
   );
-
-  const quotaCheck = await checkTenantDailyQuota(tenant, feeAmount);
-  if (!quotaCheck.allowed) {
-    throw new AppError(
-      `Tier limit exceeded. Spend ${quotaCheck.currentSpendStroops}/${quotaCheck.dailyQuotaStroops} stroops and transactions ${quotaCheck.currentTxCount}/${quotaCheck.txLimit} today.`,
-      403,
-      "QUOTA_EXCEEDED"
-    );
-  }
-
   const innerTxHash = innerTransaction.hash().toString("hex");
 
-  // Create transaction record with PENDING status
-  const transactionRecord = await prisma.transaction.create({
+  return {
+    innerTransaction,
+    feeAmount,
+    category,
+    innerTxHash,
+  };
+}
+
+async function createPendingTransactionRecord(
+  tenantId: string,
+  prepared: PreparedFeeBump,
+): Promise<{ id: string }> {
+  return prisma.transaction.create({
     data: {
-      innerTxHash,
-      tenantId: tenant.id,
+      innerTxHash: prepared.innerTxHash,
+      tenantId,
       status: "PENDING",
-      costStroops: feeAmount,
-      category,
+      costStroops: prepared.feeAmount,
+      category: prepared.category,
     },
   });
+}
+
+async function executePreparedFeeBump(
+  xdr: string,
+  submit: boolean,
+  config: Config,
+  tenantId: string,
+  feePayerAccount: FeePayerAccount,
+  transactionRecordId: string,
+): Promise<FeeBumpResponse> {
+  const innerTransaction = parseInnerTransaction(xdr, config);
+  const dynamicFeeMultiplier =
+    getFeeManager()?.getMultiplier() ?? config.feeMultiplier;
+  const feeAmount = calculateFeeBumpFee(
+    innerTransaction,
+    config.baseFee,
+    dynamicFeeMultiplier
+  );
 
   try {
     const feeBumpTx = StellarSdk.TransactionBuilder.buildFeeBumpTransaction(
@@ -262,7 +299,7 @@ async function processFeeBump(
     );
 
     feeBumpTx.sign(feePayerAccount.keypair);
-    await recordSponsoredTransaction(tenant.id, feeAmount);
+    await recordSponsoredTransaction(tenantId, feeAmount);
     await maybeNotifyMilestones();
 
     const feeBumpXdr = feeBumpTx.toXDR();
@@ -273,10 +310,10 @@ async function processFeeBump(
 
       try {
         const submissionResult = await server.submitTransaction(feeBumpTx);
-        await transactionStore.addTransaction(submissionResult.hash, tenant.id, "submitted");
+        await transactionStore.addTransaction(submissionResult.hash, tenantId, "submitted");
 
         await prisma.transaction.update({
-          where: { id: transactionRecord.id },
+          where: { id: transactionRecordId },
           data: {
             status: "SUCCESS",
             txHash: submissionResult.hash,
@@ -292,9 +329,8 @@ async function processFeeBump(
       } catch (error: any) {
         console.error("Transaction submission failed:", error);
 
-        // Update transaction record to FAILED
         await prisma.transaction.update({
-          where: { id: transactionRecord.id },
+          where: { id: transactionRecordId },
           data: {
             status: "FAILED",
           },
@@ -308,9 +344,8 @@ async function processFeeBump(
       }
     }
 
-    // Update transaction record to SUCCESS for non-submitted transactions
     await prisma.transaction.update({
-      where: { id: transactionRecord.id },
+      where: { id: transactionRecordId },
       data: {
         status: "SUCCESS",
         txHash: feeBumpTxHash,
@@ -323,9 +358,8 @@ async function processFeeBump(
       fee_payer: feePayerAccount.publicKey,
     };
   } catch (error: any) {
-    // Update transaction record to FAILED for any other errors
     await prisma.transaction.update({
-      where: { id: transactionRecord.id },
+      where: { id: transactionRecordId },
       data: {
         status: "FAILED",
       },
@@ -333,6 +367,49 @@ async function processFeeBump(
 
     throw error;
   }
+}
+
+function createSettlementExecutor(config: Config): SettlementExecutor {
+  return {
+    async execute(input) {
+      await executePreparedFeeBump(
+        input.xdr,
+        input.submit,
+        config,
+        input.tenantId,
+        input.feePayerAccount,
+        input.transactionId,
+      );
+    },
+  };
+}
+
+async function processFeeBump(
+  xdr: string,
+  submit: boolean,
+  config: Config,
+  tenant: Tenant,
+  feePayerAccount: FeePayerAccount
+): Promise<FeeBumpResponse> {
+  const prepared = prepareFeeBump(xdr, config);
+  const quotaCheck = await checkTenantDailyQuota(tenant, prepared.feeAmount);
+  if (!quotaCheck.allowed) {
+    throw new AppError(
+      `Tier limit exceeded. Spend ${quotaCheck.currentSpendStroops}/${quotaCheck.dailyQuotaStroops} stroops and transactions ${quotaCheck.currentTxCount}/${quotaCheck.txLimit} today.`,
+      403,
+      "QUOTA_EXCEEDED"
+    );
+  }
+  const transactionRecord = await createPendingTransactionRecord(tenant.id, prepared);
+
+  return executePreparedFeeBump(
+    xdr,
+    submit,
+    config,
+    tenant.id,
+    feePayerAccount,
+    transactionRecord.id,
+  );
 }
 
 export async function feeBumpHandler(
@@ -457,6 +534,92 @@ export async function feeBumpHandler(
 
     const tenant = syncTenantFromApiKey(apiKeyConfig);
     const feePayerAccount = pickFeePayerAccount(config);
+
+    if (body.evmSettlement) {
+      if (!config.evmSettlement?.enabled) {
+        return next(
+          new AppError(
+            "EVM settlement is not enabled on this server.",
+            400,
+            "EVM_SETTLEMENT_DISABLED",
+          ),
+        );
+      }
+
+      if (body.evmSettlement.chainId !== config.evmSettlement.chainId) {
+        return next(
+          new AppError(
+            `Unsupported EVM chain ${body.evmSettlement.chainId}. Expected chain ${config.evmSettlement.chainId}.`,
+            400,
+            "UNSUPPORTED_EVM_CHAIN",
+          ),
+        );
+      }
+
+      if (
+        body.evmSettlement.tokenAddress.toLowerCase() !==
+        config.evmSettlement.tokenAddress.toLowerCase()
+      ) {
+        return next(
+          new AppError(
+            "Unsupported EVM settlement token address.",
+            400,
+            "UNSUPPORTED_EVM_TOKEN",
+          ),
+        );
+      }
+
+      const prepared = prepareFeeBump(body.xdr, config);
+      const quotaCheck = await checkTenantDailyQuota(tenant, prepared.feeAmount);
+      if (!quotaCheck.allowed) {
+        return next(
+          new AppError(
+            `Tier limit exceeded. Spend ${quotaCheck.currentSpendStroops}/${quotaCheck.dailyQuotaStroops} stroops and transactions ${quotaCheck.currentTxCount}/${quotaCheck.txLimit} today.`,
+            403,
+            "QUOTA_EXCEEDED",
+          ),
+        );
+      }
+
+      const transactionRecord = await createPendingTransactionRecord(
+        tenant.id,
+        prepared,
+      );
+      const settlementService = getCrossChainSettlementService(
+        config,
+        createSettlementExecutor(config),
+      );
+      const settlement = await settlementService.enqueuePendingSettlement({
+        transactionId: transactionRecord.id,
+        tenantId: tenant.id,
+        xdr: body.xdr,
+        submit: body.submit || false,
+        sourceChainId: body.evmSettlement.chainId,
+        sourceTokenAddress: body.evmSettlement.tokenAddress,
+        sourceAmount: body.evmSettlement.amount,
+        payerAddress: body.evmSettlement.payerAddress,
+        recipientAddress: config.evmSettlement.receiverAddress,
+        confirmationsRequired: config.evmSettlement.confirmationsRequired,
+        feePayerPublicKey: feePayerAccount.publicKey,
+      });
+      settlementService.ensureStarted();
+
+      res.json({
+        xdr: body.xdr,
+        status: "awaiting_evm_payment",
+        fee_payer: feePayerAccount.publicKey,
+        settlement_id: settlement.settlementId,
+        evm_payment: {
+          chain_id: config.evmSettlement.chainId,
+          token_address: config.evmSettlement.tokenAddress,
+          amount: body.evmSettlement.amount,
+          payer_address: body.evmSettlement.payerAddress.toLowerCase(),
+          recipient_address: config.evmSettlement.receiverAddress.toLowerCase(),
+          confirmations_required: config.evmSettlement.confirmationsRequired,
+        },
+      } satisfies FeeBumpResponse);
+      return;
+    }
 
     const response = await processFeeBump(
       body.xdr,
