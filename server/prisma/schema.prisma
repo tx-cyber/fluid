@@ -276,6 +276,49 @@ model AuditLog {
   @@index([createdAt])
 }
 
+// Cosmos FeeGrant — per-chain granter wallet configuration.
+model CosmosGranterConfig {
+  id          String   @id @default(uuid())
+  chainId     String   @unique // e.g. "cosmoshub-4", "theta-testnet-001"
+  name        String           // Human-readable label
+  rpcUrl      String           // Tendermint/CometBFT RPC endpoint
+  prefix      String   @default("cosmos") // bech32 address prefix
+  denom       String   @default("uatom")  // fee denom
+  enabled     Boolean  @default(false)
+  // Granter mnemonic encrypted with AES-256-GCM (same scheme as SignerSecret)
+  encryptedMnemonic   String?
+  initializationVec   String?
+  authTag             String?
+  granterAddress      String?  // derived bech32 address (cached)
+  allowances  CosmosFeeGrantAllowance[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([enabled])
+}
+
+// Tracks individual fee-grant allowances issued on Cosmos chains.
+model CosmosFeeGrantAllowance {
+  id            String   @id @default(uuid())
+  granterId     String
+  granter       CosmosGranterConfig @relation(fields: [granterId], references: [id], onDelete: Cascade)
+  granteeAddr   String   // bech32 address of the grantee
+  allowanceType String   // "basic" | "periodic"
+  spendLimit    String?  // JSON array of Coin, e.g. [{"denom":"uatom","amount":"1000000"}]
+  expiration    DateTime?
+  // Periodic-specific fields
+  periodSeconds Int?
+  periodLimit   String?  // JSON Coin array for per-period limit
+  txHash        String?  // on-chain tx hash of the grant
+  status        String   @default("pending") // pending, active, revoked, expired
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([granterId, granteeAddr])
+  @@index([status])
+  @@index([granteeAddr])
+}
+
 // Chain registry — operator-managed list of supported Stellar networks.
 // Fee payer secret is stored AES-256-GCM encrypted (same scheme as SignerSecret).
 model ChainRegistry {
