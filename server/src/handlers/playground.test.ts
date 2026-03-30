@@ -5,7 +5,7 @@
  * Stellar SDK and fetch calls — no real network requests are made.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Request, Response, NextFunction } from "express";
 import * as StellarSdk from "@stellar/stellar-sdk";
 
@@ -45,6 +45,23 @@ function buildSignedTestnetXdr(): string {
 }
 
 const VALID_XDR = buildSignedTestnetXdr();
+const MAINNET_PASSPHRASE = "Public Global Stellar Network ; September 2015";
+const SAMPLE_CONTRACT_URL =
+  "https://stellar.expert/explorer/public/contract/CCK5PTLH5F5QQZP4HEJF3RMMTIDROHHUSCK4CQMLBGOA4MKJXTWEUEAR";
+const SAMPLE_CONTRACT_ID =
+  "CCK5PTLH5F5QQZP4HEJF3RMMTIDROHHUSCK4CQMLBGOA4MKJXTWEUEAR";
+const SAMPLE_WASM_HASH =
+  "a89ca4283f5a713b476842a3ef8ba16c19e9ac42826b87907cad3bdc01356b56";
+const SAMPLE_SPEC_ENTRIES = [
+  "AAAAAAAAAhpJbml0aWFsaXplIHRoZSBjb250cmFjdAoKIyMjIEFyZ3VtZW50cwoqIGBhZG1pbmAgLSBUaGUgYWRtaW4gb2YgdGhlIGxvY2t1cCBjb250cmFjdAoqIGBvd25lcmAgLSBUaGUgb3duZXIgb2YgdGhlIGxvY2t1cCBjb250cmFjdAoqIGB0b2tlbmAgLSBUaGUgdG9rZW4gdG8gbG9jayB1cAoqIGB1bmxvY2tzYCAtIEEgdmVjdG9yIG9mIHVubG9ja3MuIFBlcmNlbnRhZ2VzIHJlcHJlc2VudCB0aGUgcG9ydGlvbiBvZiB0aGUgbG9ja3VwcyB0b2tlbiBiYWxhbmNlIGNhbiBiZSBjbGFpbWVkCmF0IHRoZSBnaXZlbiB1bmxvY2sgdGltZS4gSWYgbXVsdGlwbGUgdW5sb2NrcyBhcmUgY2xhaW1lZCBhdCBvbmNlLCB0aGUgcGVyY2VudGFnZXMgYXJlIGFwcGxpZWQgaW4gb3JkZXIuCgojIyMgRXJyb3JzCiogQWxyZWFkeUluaXRpYWxpemVkRXJyb3IgLSBUaGUgY29udHJhY3QgaGFzIGFscmVhZHkgYmVlbiBpbml0aWFsaXplZAoqIEludmFsaWRVbmxvY2tzIC0gVGhlIHVubG9jayB0aW1lcyBkbyBub3QgcmVwcmVzZW50IGEgdmFsaWQgdW5sb2NrIHNlcXVlbmNlAAAAAAAKaW5pdGlhbGl6ZQAAAAAAAwAAAAAAAAAFYWRtaW4AAAAAAAATAAAAAAAAAAVvd25lcgAAAAAAABMAAAAAAAAAB3VubG9ja3MAAAAD6gAAB9AAAAAGVW5sb2NrAAAAAAAA",
+  "AAAAAAAAABpHZXQgdW5sb2NrcyBmb3IgdGhlIGxvY2t1cAAAAAAAB3VubG9ja3MAAAAAAAAAAAEAAAPqAAAH0AAAAAZVbmxvY2sAAA==",
+  "AAAAAAAAABVHZXQgdGhlIGFkbWluIGFkZHJlc3MAAAAAAAAFYWRtaW4AAAAAAAAAAAAAAQAAABM=",
+  "AAAAAAAAABVHZXQgdGhlIG93bmVyIGFkZHJlc3MAAAAAAAAFb3duZXIAAAAAAAAAAAAAAQAAABM=",
+  "AAAAAAAAAUwoT25seSBhZG1pbikgU2V0IG5ldyB1bmxvY2tzIGZvciB0aGUgbG9ja3VwLiBUaGUgbmV3IHVubG9ja3MgbXVzdCByZXRhaW4KYW55IGV4aXN0aW5nIHVubG9ja3MgdGhhdCBoYXZlIGFscmVhZHkgcGFzc2VkIHRoZWlyIHVubG9jayB0aW1lLgoKIyMjIEFyZ3VtZW50cwoqIGBuZXdfdW5sb2Nrc2AgLSBUaGUgbmV3IHVubG9ja3MgdG8gc2V0CgojIyMgRXJyb3JzCiogVW5hdXRob3JpemVkRXJyb3IgLSBUaGUgY2FsbGVyIGlzIG5vdCB0aGUgYWRtaW4KKiBJbnZhbGlkVW5sb2NrcyAtIFRoZSB1bmxvY2sgdGltZXMgZG8gbm90IHJlcHJlc2VudCBhIHZhbGlkIHVubG9jayBzZXF1ZW5jZQAAAAtzZXRfdW5sb2NrcwAAAAABAAAAAAAAAAtuZXdfdW5sb2NrcwAAAAPqAAAH0AAAAAZVbmxvY2sAAAAAAAA=",
+  "AAAAAAAAAQsoT25seSBvd25lcikgQ2xhaW0gdGhlIHVubG9ja2VkIHRva2Vucy4gVGhlIHRva2VucyBhcmUgdHJhbnNmZXJyZWQgdG8gdGhlIG93bmVyLgoKIyMjIEFyZ3VtZW50cwoqIGB0b2tlbnNgIC0gQSB2ZWN0b3Igb2YgdG9rZW5zIHRvIGNsYWltCgojIyMgRXJyb3JzCiogVW5hdXRob3JpemVkRXJyb3IgLSBUaGUgY2FsbGVyIGlzIG5vdCB0aGUgb3duZXIKKiBOb1VubG9ja2VkVG9rZW5zIC0gVGhlcmUgYXJlIG5vdCB0b2tlbnMgdG8gY2xhaW0gZm9yIGEgZ2l2ZW4gYXNzZXQAAAAABWNsYWltAAAAAAAAAQAAAAAAAAAGdG9rZW5zAAAAAAPqAAAAEwAAAAA=",
+  "AAAABAAAACFUaGUgZXJyb3IgY29kZXMgZm9yIHRoZSBjb250cmFjdC4AAAAAAAAAAAAAEFRva2VuTG9ja3VwRXJyb3IAAAAKAAAAAAAAAA1JbnRlcm5hbEVycm9yAAAAAAAAAQAAAAAAAAAXQWxyZWFkeUluaXRpYWxpemVkRXJyb3IAAAAAAwAAAAAAAAARVW5hdXRob3JpemVkRXJyb3IAAAAAAAAEAAAAAAAAABNOZWdhdGl2ZUFtb3VudEVycm9yAAAAAAgAAAAAAAAADkFsbG93YW5jZUVycm9yAAAAAAAJAAAAAAAAAAxCYWxhbmNlRXJyb3IAAAAKAAAAAAAAAA1PdmVyZmxvd0Vycm9yAAAAAAAADAAAAAAAAAAOSW52YWxpZFVubG9ja3MAAAAAAGQAAAAAAAAAEE5vVW5sb2NrZWRUb2tlbnMAAABlAAAAAAAAAA9BbHJlYWR5VW5sb2NrZWQAAAAAZg==",
+  "AAAAAQAAAAAAAAAAAAAABlVubG9jawAAAAAAAgAAAC9UaGUgYW1vdW50IG9mIGN1cnJlbnQgdG9rZW5zIChpbiBicHMpIHRvIHVubG9jawAAAAAHcGVyY2VudAAAAAAEAAAALlRoZSBsZWRnZXIgdGltZSAoaW4gc2Vjb25kcykgdGhlIHVubG9jayBvY2N1cnMAAAAAAAR0aW1lAAAABg==",
+] as const;
 
 // ---------------------------------------------------------------------------
 // Helpers to create mock Express req/res/next
@@ -76,6 +93,41 @@ function mockReq(body: unknown): Partial<Request> {
 }
 
 const mockNext: NextFunction = vi.fn() as unknown as NextFunction;
+
+function encodeLeb128(value: number): number[] {
+  const bytes: number[] = [];
+  let current = value;
+
+  do {
+    let byte = current & 0x7f;
+    current >>>= 7;
+    if (current !== 0) {
+      byte |= 0x80;
+    }
+    bytes.push(byte);
+  } while (current !== 0);
+
+  return bytes;
+}
+
+function buildContractSpecWasm(specEntries: readonly string[]): Buffer {
+  const payload = Buffer.concat(
+    specEntries.map((entry) => Buffer.from(entry, "base64"))
+  );
+  const sectionName = Buffer.from("contractspecv0", "utf8");
+  const sectionBody = Buffer.concat([
+    Buffer.from(encodeLeb128(sectionName.length)),
+    sectionName,
+    payload,
+  ]);
+
+  return Buffer.concat([
+    Buffer.from([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]),
+    Buffer.from([0x00]),
+    Buffer.from(encodeLeb128(sectionBody.length)),
+    sectionBody,
+  ]);
+}
 
 // ---------------------------------------------------------------------------
 // Tests for decodeXdr utility
@@ -117,6 +169,7 @@ describe("decodeXdr", () => {
 // ---------------------------------------------------------------------------
 
 import { playgroundFeeBumpHandler } from "./playground";
+import { playgroundContractImportHandler } from "./playground";
 
 describe("playgroundFeeBumpHandler", () => {
   beforeEach(() => {
@@ -125,6 +178,10 @@ describe("playgroundFeeBumpHandler", () => {
     // gitleaks:allow
     process.env.PLAYGROUND_FEE_PAYER_SECRET =
       "S" + "DDXWE2JG2VL7NU3EQ5CRJWXPIYSYNBSUBRA2MHQLAERV5CGSGDMXZFY";
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("returns 400 when xdr is missing", async () => {
@@ -257,5 +314,97 @@ describe("playgroundFeeBumpHandler", () => {
     expect(result.network).toBe("mainnet");
     // Mainnet safety: submission must be blocked
     expect(result.submitted).toBe(false);
+  });
+
+  it("imports a Stellar Expert contract URL, decodes ABI, and generates sample XDRs", async () => {
+    const wasmFixture = buildContractSpecWasm(SAMPLE_SPEC_ENTRIES);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          contract: SAMPLE_CONTRACT_ID,
+          wasm: SAMPLE_WASM_HASH,
+          creator: "GBU5Y3KF2A5JJSVVWF4UJGXMNHDKCCAZKCOD2NADEMXNDZA442GKVMPP",
+          validation: {
+            status: "verified",
+            repository: "https://github.com/script3/token-lockup",
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        arrayBuffer: async () =>
+          wasmFixture.buffer.slice(
+            wasmFixture.byteOffset,
+            wasmFixture.byteOffset + wasmFixture.byteLength
+          ),
+      });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { res, statusCode, body } = mockRes();
+    await playgroundContractImportHandler(
+      mockReq({ url: SAMPLE_CONTRACT_URL }) as Request,
+      res as Response
+    );
+
+    expect(statusCode.value).toBe(200);
+    const result = body.value as {
+      ok: boolean;
+      network: string;
+      contractId: string;
+      wasmHash: string;
+      functions: Array<{
+        name: string;
+        parameters: Array<{ name: string; type: string }>;
+        sampleXdr: string;
+      }>;
+    };
+
+    expect(result.ok).toBe(true);
+    expect(result.network).toBe("public");
+    expect(result.contractId).toBe(SAMPLE_CONTRACT_ID);
+    expect(result.wasmHash).toBe(SAMPLE_WASM_HASH);
+    expect(result.functions.length).toBeGreaterThan(0);
+
+    const claimFunction = result.functions.find((fn) => fn.name === "claim");
+    expect(claimFunction).toBeTruthy();
+    expect(claimFunction?.parameters).toEqual([
+      expect.objectContaining({ name: "tokens", type: "vec<address>" }),
+    ]);
+    expect(claimFunction?.sampleXdr).toBeTruthy();
+
+    const decodedClaimSample = decodeXdr(
+      claimFunction!.sampleXdr,
+      MAINNET_PASSPHRASE
+    );
+    expect(decodedClaimSample.operations).toHaveLength(1);
+    expect(decodedClaimSample.operations[0].type).toBe("invokeHostFunction");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      `https://api.stellar.expert/explorer/public/contract/${SAMPLE_CONTRACT_ID}`
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      `https://api.stellar.expert/explorer/public/wasm/${SAMPLE_WASM_HASH}`
+    );
+  });
+
+  it("rejects non-Stellar Expert URLs for contract import", async () => {
+    const { res, statusCode, body } = mockRes();
+    await playgroundContractImportHandler(
+      mockReq({ url: "https://example.com/not-stellar" }) as Request,
+      res as Response
+    );
+
+    expect(statusCode.value).toBe(400);
+    const result = body.value as { ok: boolean; code: string };
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe("INVALID_STELLAR_EXPERT_URL");
   });
 });

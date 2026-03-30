@@ -37,6 +37,42 @@ interface PlaygroundResponse {
   details?: unknown;
 }
 
+interface ImportedContractParameter {
+  name: string;
+  type: string;
+  doc?: string;
+}
+
+interface ImportedContractFunction {
+  name: string;
+  doc?: string;
+  parameters: ImportedContractParameter[];
+  outputs: string[];
+  sampleXdr: string;
+}
+
+interface ContractImportResponse {
+  ok: boolean;
+  receivedAt?: string;
+  sourceUrl?: string;
+  apiUrl?: string;
+  wasmUrl?: string;
+  network?: "public" | "testnet";
+  contractId?: string;
+  wasmHash?: string;
+  creator?: string;
+  validation?: {
+    status?: string;
+    repository?: string;
+    commit?: string;
+    ts?: number;
+  };
+  functions?: ImportedContractFunction[];
+  error?: string;
+  code?: string;
+  details?: unknown;
+}
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -122,6 +158,12 @@ function decodeXdrClientSide(
 
 function truncate(s: string, n = 24): string {
   return s.length > n ? `${s.slice(0, n)}…` : s;
+}
+
+function mapExplorerNetworkToPlayground(
+  network: "public" | "testnet"
+): "mainnet" | "testnet" {
+  return network === "public" ? "mainnet" : "testnet";
 }
 
 // ---------------------------------------------------------------------------
@@ -375,6 +417,11 @@ export function ApiPlayground() {
   const [xdr, setXdr] = React.useState("");
   const [apiKey, setApiKey] = React.useState(SANDBOX_API_KEY);
   const [submitTx, setSubmitTx] = React.useState(true);
+  const [contractUrl, setContractUrl] = React.useState("");
+  const [importingContract, setImportingContract] = React.useState(false);
+  const [contractImport, setContractImport] =
+    React.useState<ContractImportResponse | null>(null);
+  const [contractImportError, setContractImportError] = React.useState<string | null>(null);
 
   const [decoded, setDecoded] = React.useState<DecodedTx | null>(null);
   const [decodeError, setDecodeError] = React.useState<string | null>(null);
@@ -444,6 +491,59 @@ export function ApiPlayground() {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleImportContract = async () => {
+    if (!contractUrl.trim()) {
+      setContractImportError("Paste a Stellar Expert contract URL first.");
+      setContractImport(null);
+      return;
+    }
+
+    setImportingContract(true);
+    setContractImportError(null);
+    setContractImport(null);
+
+    try {
+      const resp = await fetch(`${PLAYGROUND_API_URL}/playground/contract-import`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: contractUrl.trim() }),
+      });
+      const json = (await resp.json()) as ContractImportResponse;
+      if (!resp.ok || !json.ok) {
+        setContractImportError(json.error ?? "Contract import failed.");
+        setContractImport(json);
+        return;
+      }
+      setContractImport(json);
+    } catch (e) {
+      setContractImportError(
+        `Contract import failed: ${e instanceof Error ? e.message : String(e)}`
+      );
+    } finally {
+      setImportingContract(false);
+    }
+  };
+
+  const handleUseSampleXdr = (
+    fn: ImportedContractFunction,
+    importedNetwork: "public" | "testnet"
+  ) => {
+    const nextNetwork = mapExplorerNetworkToPlayground(importedNetwork);
+    setNetwork(nextNetwork);
+    setXdr(fn.sampleXdr);
+    setResult(null);
+    setDecodeError(null);
+
+    try {
+      setDecoded(decodeXdrClientSide(fn.sampleXdr, nextNetwork));
+    } catch (e) {
+      setDecoded(null);
+      setDecodeError(
+        `Sample XDR decode failed: ${e instanceof Error ? e.message : String(e)}`
+      );
     }
   };
 
@@ -552,6 +652,230 @@ export function ApiPlayground() {
               >
                 ⚠️ Mainnet selected — submission is disabled in the playground for safety. You
                 will receive the ready-to-submit fee-bumped XDR only.
+              </div>
+            )}
+          </Panel>
+
+          <Panel>
+            <SectionHeader>
+              <span>🧬</span> Soroban Contract Import
+            </SectionHeader>
+
+            <p style={{ margin: "0 0 10px", color: colors.muted, fontSize: 13, lineHeight: 1.6 }}>
+              Paste a Stellar Expert Soroban contract URL to auto-import the ABI, inspect the
+              function signatures, and generate sample inner transaction XDRs in one click.
+            </p>
+
+            <div style={{ marginBottom: 10 }}>
+              <input
+                id="contract-url-input"
+                type="url"
+                value={contractUrl}
+                onChange={(e) => {
+                  setContractUrl(e.target.value);
+                  setContractImportError(null);
+                }}
+                placeholder="https://stellar.expert/explorer/public/contract/C..."
+                style={inputStyle}
+              />
+            </div>
+
+            <button
+              id="btn-import-contract"
+              type="button"
+              onClick={handleImportContract}
+              disabled={importingContract || !contractUrl.trim()}
+              style={{
+                ...btnBase,
+                background:
+                  importingContract || !contractUrl.trim()
+                    ? "rgba(30,41,59,0.35)"
+                    : "rgba(56,189,248,0.12)",
+                border: `1px solid ${
+                  importingContract || !contractUrl.trim()
+                    ? colors.border
+                    : colors.borderActive
+                }`,
+                color:
+                  importingContract || !contractUrl.trim() ? colors.muted : colors.accent,
+                fontSize: 13,
+                cursor: importingContract || !contractUrl.trim() ? "not-allowed" : "pointer",
+              }}
+            >
+              {importingContract ? "⏳ Importing ABI…" : "⬇️ Import Contract ABI"}
+            </button>
+
+            {contractImportError && (
+              <div
+                style={{
+                  marginTop: 10,
+                  padding: "8px 12px",
+                  background: `${colors.red}18`,
+                  border: `1px solid ${colors.red}44`,
+                  borderRadius: 8,
+                  fontSize: 12,
+                  color: colors.red,
+                }}
+              >
+                {contractImportError}
+              </div>
+            )}
+
+            {contractImport?.ok && contractImport.contractId && contractImport.network && (
+              <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 12 }}>
+                <div
+                  style={{
+                    border: `1px solid ${colors.border}`,
+                    borderRadius: 12,
+                    background: "rgba(15,23,42,0.45)",
+                    padding: "12px 14px",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      alignItems: "center",
+                      gap: 8,
+                      marginBottom: 8,
+                    }}
+                  >
+                    <Badge color="green">ABI Imported</Badge>
+                    <Badge color="accent">
+                      {contractImport.network === "public" ? "Mainnet Contract" : "Testnet Contract"}
+                    </Badge>
+                    {contractImport.validation?.status && (
+                      <Badge color="yellow">{contractImport.validation.status}</Badge>
+                    )}
+                  </div>
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12 }}>
+                    <div style={{ color: colors.muted }}>
+                      Contract:{" "}
+                      <span style={{ color: colors.text, fontFamily: "'JetBrains Mono', monospace" }}>
+                        {contractImport.contractId}
+                      </span>
+                    </div>
+                    {contractImport.wasmHash && (
+                      <div style={{ color: colors.muted }}>
+                        WASM:{" "}
+                        <span
+                          style={{ color: colors.text, fontFamily: "'JetBrains Mono', monospace" }}
+                        >
+                          {truncate(contractImport.wasmHash, 42)}
+                        </span>
+                      </div>
+                    )}
+                    {contractImport.validation?.repository && (
+                      <a
+                        href={contractImport.validation.repository}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ color: colors.accent, fontSize: 12, textDecoration: "none" }}
+                      >
+                        View verified source ↗
+                      </a>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {(contractImport.functions ?? []).map((fn) => (
+                    <div
+                      key={fn.name}
+                      style={{
+                        border: `1px solid ${colors.border}`,
+                        borderRadius: 12,
+                        background: "rgba(15,23,42,0.45)",
+                        padding: "12px 14px",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "flex-start",
+                          gap: 12,
+                          marginBottom: 8,
+                        }}
+                      >
+                        <div>
+                          <div
+                            style={{
+                              color: "#f8fafc",
+                              fontWeight: 700,
+                              fontSize: 14,
+                              marginBottom: 4,
+                              fontFamily: "'JetBrains Mono', monospace",
+                              wordBreak: "break-word",
+                            }}
+                          >
+                            {fn.name}(
+                            {fn.parameters
+                              .map((param) => `${param.name}: ${param.type}`)
+                              .join(", ")}
+                            )
+                            {fn.outputs.length > 0 ? ` -> ${fn.outputs.join(", ")}` : ""}
+                          </div>
+                          {fn.doc && (
+                            <div
+                              style={{
+                                color: colors.muted,
+                                fontSize: 12,
+                                lineHeight: 1.6,
+                                whiteSpace: "pre-wrap",
+                              }}
+                            >
+                              {fn.doc}
+                            </div>
+                          )}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleUseSampleXdr(fn, contractImport.network!)}
+                          style={{
+                            ...btnBase,
+                            padding: "8px 12px",
+                            background: "rgba(52,211,153,0.14)",
+                            border: `1px solid ${colors.green}55`,
+                            color: colors.green,
+                            fontSize: 12,
+                            flexShrink: 0,
+                          }}
+                        >
+                          ⚙️ Generate Sample XDR
+                        </button>
+                      </div>
+
+                      {fn.parameters.length > 0 && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          {fn.parameters.map((param) => (
+                            <div key={`${fn.name}-${param.name}`} style={{ fontSize: 12 }}>
+                              <span style={{ color: colors.text, fontWeight: 600 }}>
+                                {param.name}
+                              </span>
+                              <span
+                                style={{
+                                  color: colors.accent,
+                                  marginLeft: 6,
+                                  fontFamily: "'JetBrains Mono', monospace",
+                                }}
+                              >
+                                {param.type}
+                              </span>
+                              {param.doc && (
+                                <span style={{ color: colors.muted, marginLeft: 8 }}>
+                                  {param.doc}
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </Panel>

@@ -15,9 +15,14 @@
  * No database writes are made; this is purely a demonstration path.
  */
 
-import StellarSdk, { Keypair, Transaction } from "@stellar/stellar-sdk";
+import StellarSdk, { ContractSpec, Keypair, Transaction, xdr } from "@stellar/stellar-sdk";
 import { Request, Response, NextFunction } from "express";
 import { z } from "zod";
+const { XdrReader } = require("@stellar/js-xdr/lib/xdr") as {
+  XdrReader: new (source: Buffer) => {
+    readonly eof: boolean;
+  };
+};
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -26,6 +31,19 @@ import { z } from "zod";
 const PLAYGROUND_HORIZON_URL =
   process.env.PLAYGROUND_HORIZON_URL ??
   "https://horizon-testnet.stellar.org";
+const STELLAR_EXPERT_API_URL = "https://api.stellar.expert";
+const STELLAR_EXPERT_HOSTS = new Set([
+  "stellar.expert",
+  "www.stellar.expert",
+  "api.stellar.expert",
+]);
+const CONTRACT_SPEC_SECTION_NAME = "contractspecv0";
+const SAMPLE_SOURCE_SECRET =
+  // gitleaks:allow
+  "S" + "DDXWE2JG2VL7NU3EQ5CRJWXPIYSYNBSUBRA2MHQLAERV5CGSGDMXZFY";
+const SAMPLE_SOURCE_SEQUENCE = "0";
+const SAMPLE_TX_TIMEOUT_SECONDS = 300;
+const SAMPLE_ADDRESS = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 
 const TESTNET_PASSPHRASE = "Test SDF Network ; September 2015";
 const MAINNET_PASSPHRASE = "Public Global Stellar Network ; September 2015";
@@ -51,6 +69,14 @@ export const PlaygroundSchema = z.object({
 
 export type PlaygroundRequest = z.infer<typeof PlaygroundSchema>;
 
+const PlaygroundContractImportSchema = z.object({
+  url: z.string().min(1, "url is required").url("url must be a valid URL"),
+});
+
+type PlaygroundContractImportRequest = z.infer<
+  typeof PlaygroundContractImportSchema
+>;
+
 // ---------------------------------------------------------------------------
 // Utility: decode XDR → structured operation list
 // ---------------------------------------------------------------------------
@@ -69,6 +95,59 @@ export interface DecodedTransaction {
   operations: DecodedOperation[];
   signatures: number;
   memo: string;
+}
+
+interface StellarExpertContractMetadata {
+  contract: string;
+  wasm: string;
+  creator?: string;
+  created?: number;
+  validation?: {
+    status?: string;
+    repository?: string;
+    commit?: string;
+    ts?: number;
+  };
+}
+
+interface ImportedContractFunctionParameter {
+  name: string;
+  type: string;
+  doc?: string;
+}
+
+interface ImportedContractFunction {
+  name: string;
+  doc?: string;
+  parameters: ImportedContractFunctionParameter[];
+  outputs: string[];
+  sampleXdr: string;
+}
+
+interface ImportedContractResponse {
+  ok: true;
+  receivedAt: string;
+  sourceUrl: string;
+  apiUrl: string;
+  wasmUrl: string;
+  network: "public" | "testnet";
+  contractId: string;
+  wasmHash: string;
+  creator?: string;
+  validation?: StellarExpertContractMetadata["validation"];
+  functions: ImportedContractFunction[];
+}
+
+class PlaygroundImportError extends Error {
+  constructor(
+    message: string,
+    readonly statusCode: number,
+    readonly code: string,
+    readonly details?: unknown
+  ) {
+    super(message);
+    this.name = "PlaygroundImportError";
+  }
 }
 
 export function decodeXdr(
@@ -104,6 +183,464 @@ export function decodeXdr(
     operations: ops,
     signatures: tx.signatures.length,
     memo: memoStr,
+  };
+}
+
+function getNetworkPassphrase(network: "public" | "testnet"): string {
+  return network === "public" ? MAINNET_PASSPHRASE : TESTNET_PASSPHRASE;
+}
+
+function parseStellarExpertContractUrl(rawUrl: string): {
+  normalizedUrl: string;
+  network: "public" | "testnet";
+  contractId: string;
+} {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new PlaygroundImportError(
+      "Invalid Stellar Expert URL",
+      400,
+      "INVALID_STELLAR_EXPERT_URL"
+    );
+  }
+
+  if (!STELLAR_EXPERT_HOSTS.has(parsed.hostname)) {
+    throw new PlaygroundImportError(
+      "URL must point to stellar.expert",
+      400,
+      "INVALID_STELLAR_EXPERT_URL"
+    );
+  }
+
+  const parts = parsed.pathname.split("/").filter(Boolean);
+  if (
+    parts.length < 4 ||
+    parts[0] !== "explorer" ||
+    (parts[1] !== "public" && parts[1] !== "testnet") ||
+    parts[2] !== "contract"
+  ) {
+    throw new PlaygroundImportError(
+      "URL must match /explorer/{public|testnet}/contract/{contractId}",
+      400,
+      "INVALID_STELLAR_EXPERT_URL"
+    );
+  }
+
+  const contractId = parts[3];
+  if (!StellarSdk.StrKey.isValidContract(contractId)) {
+    throw new PlaygroundImportError(
+      "Invalid Stellar contract ID in URL",
+      400,
+      "INVALID_STELLAR_EXPERT_URL"
+    );
+  }
+
+  return {
+    normalizedUrl: `https://stellar.expert/explorer/${parts[1]}/contract/${contractId}`,
+    network: parts[1],
+    contractId,
+  };
+}
+
+async function fetchStellarExpertJson<T>(url: string): Promise<T> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new PlaygroundImportError(
+      `Stellar Expert request failed with ${response.status}`,
+      502,
+      "STELLAR_EXPERT_FETCH_FAILED",
+      { url, status: response.status }
+    );
+  }
+
+  return (await response.json()) as T;
+}
+
+async function fetchStellarExpertBuffer(url: string): Promise<Buffer> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new PlaygroundImportError(
+      `Stellar Expert request failed with ${response.status}`,
+      502,
+      "STELLAR_EXPERT_FETCH_FAILED",
+      { url, status: response.status }
+    );
+  }
+
+  return Buffer.from(await response.arrayBuffer());
+}
+
+function readLeb128(buffer: Buffer, offset: number): {
+  value: number;
+  nextOffset: number;
+} {
+  let value = 0;
+  let shift = 0;
+  let currentOffset = offset;
+
+  while (currentOffset < buffer.length) {
+    const byte = buffer[currentOffset];
+    currentOffset += 1;
+    value |= (byte & 0x7f) << shift;
+    if ((byte & 0x80) === 0) {
+      return { value, nextOffset: currentOffset };
+    }
+    shift += 7;
+  }
+
+  throw new PlaygroundImportError(
+    "Invalid WASM payload returned by Stellar Expert",
+    502,
+    "INVALID_WASM"
+  );
+}
+
+function extractWasmCustomSection(
+  wasm: Buffer,
+  sectionName: string
+): Buffer | null {
+  if (
+    wasm.length < 8 ||
+    wasm[0] !== 0x00 ||
+    wasm[1] !== 0x61 ||
+    wasm[2] !== 0x73 ||
+    wasm[3] !== 0x6d
+  ) {
+    throw new PlaygroundImportError(
+      "Stellar Expert returned an invalid WASM binary",
+      502,
+      "INVALID_WASM"
+    );
+  }
+
+  let offset = 8;
+  while (offset < wasm.length) {
+    const sectionId = wasm[offset];
+    offset += 1;
+
+    const sizeInfo = readLeb128(wasm, offset);
+    const sectionSize = sizeInfo.value;
+    offset = sizeInfo.nextOffset;
+
+    const sectionEnd = offset + sectionSize;
+    if (sectionEnd > wasm.length) {
+      throw new PlaygroundImportError(
+        "Invalid WASM section size",
+        502,
+        "INVALID_WASM"
+      );
+    }
+
+    if (sectionId === 0) {
+      const nameLengthInfo = readLeb128(wasm, offset);
+      const nameLength = nameLengthInfo.value;
+      offset = nameLengthInfo.nextOffset;
+
+      const name = wasm.subarray(offset, offset + nameLength).toString("utf8");
+      offset += nameLength;
+
+      if (name === sectionName) {
+        return wasm.subarray(offset, sectionEnd);
+      }
+    }
+
+    offset = sectionEnd;
+  }
+
+  return null;
+}
+
+function decodeContractSpecEntries(wasm: Buffer): xdr.ScSpecEntry[] {
+  const section = extractWasmCustomSection(wasm, CONTRACT_SPEC_SECTION_NAME);
+  if (!section) {
+    throw new PlaygroundImportError(
+      "No Soroban contract spec found in the contract WASM",
+      422,
+      "CONTRACT_SPEC_NOT_FOUND"
+    );
+  }
+
+  const reader = new XdrReader(section);
+  const entries: xdr.ScSpecEntry[] = [];
+
+  while (!reader.eof) {
+    entries.push(xdr.ScSpecEntry.read(reader));
+  }
+
+  return entries;
+}
+
+function formatSpecType(typeDef: xdr.ScSpecTypeDef): string {
+  const type = typeDef.switch().value;
+
+  if (type === xdr.ScSpecType.scSpecTypeVal().value) return "val";
+  if (type === xdr.ScSpecType.scSpecTypeBool().value) return "bool";
+  if (type === xdr.ScSpecType.scSpecTypeVoid().value) return "void";
+  if (type === xdr.ScSpecType.scSpecTypeError().value) return "error";
+  if (type === xdr.ScSpecType.scSpecTypeU32().value) return "u32";
+  if (type === xdr.ScSpecType.scSpecTypeI32().value) return "i32";
+  if (type === xdr.ScSpecType.scSpecTypeU64().value) return "u64";
+  if (type === xdr.ScSpecType.scSpecTypeI64().value) return "i64";
+  if (type === xdr.ScSpecType.scSpecTypeTimepoint().value) return "timepoint";
+  if (type === xdr.ScSpecType.scSpecTypeDuration().value) return "duration";
+  if (type === xdr.ScSpecType.scSpecTypeU128().value) return "u128";
+  if (type === xdr.ScSpecType.scSpecTypeI128().value) return "i128";
+  if (type === xdr.ScSpecType.scSpecTypeU256().value) return "u256";
+  if (type === xdr.ScSpecType.scSpecTypeI256().value) return "i256";
+  if (type === xdr.ScSpecType.scSpecTypeBytes().value) return "bytes";
+  if (type === xdr.ScSpecType.scSpecTypeString().value) return "string";
+  if (type === xdr.ScSpecType.scSpecTypeSymbol().value) return "symbol";
+  if (type === xdr.ScSpecType.scSpecTypeAddress().value) return "address";
+  if (type === xdr.ScSpecType.scSpecTypeOption().value) {
+    return `${formatSpecType(typeDef.option().valueType())}?`;
+  }
+  if (type === xdr.ScSpecType.scSpecTypeResult().value) {
+    return `result<${formatSpecType(typeDef.result().okType())}, ${formatSpecType(
+      typeDef.result().errorType()
+    )}>`;
+  }
+  if (type === xdr.ScSpecType.scSpecTypeVec().value) {
+    return `vec<${formatSpecType(typeDef.vec().elementType())}>`;
+  }
+  if (type === xdr.ScSpecType.scSpecTypeMap().value) {
+    return `map<${formatSpecType(typeDef.map().keyType())}, ${formatSpecType(
+      typeDef.map().valueType()
+    )}>`;
+  }
+  if (type === xdr.ScSpecType.scSpecTypeTuple().value) {
+    return `[${typeDef
+      .tuple()
+      .valueTypes()
+      .map((valueType) => formatSpecType(valueType))
+      .join(", ")}]`;
+  }
+  if (type === xdr.ScSpecType.scSpecTypeBytesN().value) {
+    return `bytes[${typeDef.bytesN().n()}]`;
+  }
+  if (type === xdr.ScSpecType.scSpecTypeUdt().value) {
+    return typeDef.udt().name().toString();
+  }
+
+  return typeDef.switch().name;
+}
+
+function buildSampleValue(
+  contractSpec: ContractSpec,
+  typeDef: xdr.ScSpecTypeDef,
+  seen = new Set<string>()
+): unknown {
+  const type = typeDef.switch().value;
+
+  if (type === xdr.ScSpecType.scSpecTypeVal().value) return 0;
+  if (type === xdr.ScSpecType.scSpecTypeBool().value) return false;
+  if (type === xdr.ScSpecType.scSpecTypeVoid().value) return null;
+  if (type === xdr.ScSpecType.scSpecTypeError().value) return 0;
+  if (type === xdr.ScSpecType.scSpecTypeU32().value) return 0;
+  if (type === xdr.ScSpecType.scSpecTypeI32().value) return 0;
+  if (type === xdr.ScSpecType.scSpecTypeU64().value) return 0n;
+  if (type === xdr.ScSpecType.scSpecTypeI64().value) return 0n;
+  if (type === xdr.ScSpecType.scSpecTypeTimepoint().value) return 0n;
+  if (type === xdr.ScSpecType.scSpecTypeDuration().value) return 0n;
+  if (type === xdr.ScSpecType.scSpecTypeU128().value) return 0n;
+  if (type === xdr.ScSpecType.scSpecTypeI128().value) return 0n;
+  if (type === xdr.ScSpecType.scSpecTypeU256().value) return 0n;
+  if (type === xdr.ScSpecType.scSpecTypeI256().value) return 0n;
+  if (type === xdr.ScSpecType.scSpecTypeBytes().value) return Buffer.from("sample");
+  if (type === xdr.ScSpecType.scSpecTypeString().value) return "sample";
+  if (type === xdr.ScSpecType.scSpecTypeSymbol().value) return "sample";
+  if (type === xdr.ScSpecType.scSpecTypeAddress().value) return SAMPLE_ADDRESS;
+  if (type === xdr.ScSpecType.scSpecTypeOption().value) return undefined;
+  if (type === xdr.ScSpecType.scSpecTypeVec().value) {
+    return [buildSampleValue(contractSpec, typeDef.vec().elementType(), seen)];
+  }
+  if (type === xdr.ScSpecType.scSpecTypeMap().value) {
+    return [
+      [
+        buildSampleValue(contractSpec, typeDef.map().keyType(), seen),
+        buildSampleValue(contractSpec, typeDef.map().valueType(), seen),
+      ],
+    ];
+  }
+  if (type === xdr.ScSpecType.scSpecTypeTuple().value) {
+    return typeDef
+      .tuple()
+      .valueTypes()
+      .map((valueType) => buildSampleValue(contractSpec, valueType, seen));
+  }
+  if (type === xdr.ScSpecType.scSpecTypeBytesN().value) {
+    return Buffer.alloc(typeDef.bytesN().n());
+  }
+  if (type === xdr.ScSpecType.scSpecTypeUdt().value) {
+    const name = typeDef.udt().name().toString();
+    if (seen.has(name)) {
+      return null;
+    }
+
+    const nextSeen = new Set(seen);
+    nextSeen.add(name);
+
+    const entry = contractSpec.findEntry(name);
+    const entryType = entry.switch().value;
+    if (entryType === xdr.ScSpecEntryKind.scSpecEntryUdtStructV0().value) {
+      const struct = entry.udtStructV0();
+      const fields = struct.fields();
+      if (fields.every((field) => /^\d+$/.test(field.name().toString()))) {
+        return fields.map((field) =>
+          buildSampleValue(contractSpec, field.type(), nextSeen)
+        );
+      }
+
+      return Object.fromEntries(
+        fields.map((field) => [
+          field.name().toString(),
+          buildSampleValue(contractSpec, field.type(), nextSeen),
+        ])
+      );
+    }
+
+    if (entryType === xdr.ScSpecEntryKind.scSpecEntryUdtUnionV0().value) {
+      const union = entry.udtUnionV0();
+      const firstCase = union.cases()[0];
+      const tag = firstCase.value().name().toString();
+
+      if (
+        firstCase.switch().value ===
+        xdr.ScSpecUdtUnionCaseV0Kind.scSpecUdtUnionCaseVoidV0().value
+      ) {
+        return { tag };
+      }
+
+      return {
+        tag,
+        values: firstCase
+          .tupleCase()
+          .type()
+          .map((valueType) =>
+            buildSampleValue(contractSpec, valueType, nextSeen)
+          ),
+      };
+    }
+
+    if (
+      entryType === xdr.ScSpecEntryKind.scSpecEntryUdtEnumV0().value ||
+      entryType === xdr.ScSpecEntryKind.scSpecEntryUdtErrorEnumV0().value
+    ) {
+      return entryType === xdr.ScSpecEntryKind.scSpecEntryUdtEnumV0().value
+        ? entry.udtEnumV0().cases()[0].value()
+        : entry.udtErrorEnumV0().cases()[0].value();
+    }
+  }
+
+  return 0;
+}
+
+function buildSampleInvocationXdr(
+  contractId: string,
+  functionName: string,
+  contractSpec: ContractSpec,
+  args: Record<string, unknown>,
+  network: "public" | "testnet"
+): string {
+  const keypair = Keypair.fromSecret(SAMPLE_SOURCE_SECRET);
+  const sourceAccount = new StellarSdk.Account(
+    keypair.publicKey(),
+    SAMPLE_SOURCE_SEQUENCE
+  );
+  const networkPassphrase = getNetworkPassphrase(network);
+  const contract = new StellarSdk.Contract(contractId);
+  const scArgs = contractSpec.funcArgsToScVals(functionName, args);
+
+  const tx = new StellarSdk.TransactionBuilder(sourceAccount, {
+    fee: "100",
+    networkPassphrase,
+  })
+    .addOperation(contract.call(functionName, ...scArgs))
+    .setTimeout(SAMPLE_TX_TIMEOUT_SECONDS)
+    .build();
+
+  tx.sign(keypair);
+  return tx.toXDR();
+}
+
+function buildImportedFunction(
+  contractId: string,
+  contractSpec: ContractSpec,
+  fn: xdr.ScSpecFunctionV0,
+  network: "public" | "testnet"
+): ImportedContractFunction {
+  const functionName = fn.name().toString();
+  const args = Object.fromEntries(
+    fn.inputs().map((input) => [
+      input.name().toString(),
+      buildSampleValue(contractSpec, input.type()),
+    ])
+  );
+
+  return {
+    name: functionName,
+    doc: fn.doc()?.toString(),
+    parameters: fn.inputs().map((input) => ({
+      name: input.name().toString(),
+      type: formatSpecType(input.type()),
+      doc: input.doc()?.toString(),
+    })),
+    outputs: fn.outputs().map((output) => formatSpecType(output)),
+    sampleXdr: buildSampleInvocationXdr(
+      contractId,
+      functionName,
+      contractSpec,
+      args,
+      network
+    ),
+  };
+}
+
+async function importContractInterface(
+  rawUrl: string,
+  receivedAt: string
+): Promise<ImportedContractResponse> {
+  const parsed = parseStellarExpertContractUrl(rawUrl);
+  const apiUrl = `${STELLAR_EXPERT_API_URL}/explorer/${parsed.network}/contract/${parsed.contractId}`;
+  const metadata = await fetchStellarExpertJson<StellarExpertContractMetadata>(
+    apiUrl
+  );
+
+  if (!metadata.wasm || !/^[0-9a-f]{64}$/i.test(metadata.wasm)) {
+    throw new PlaygroundImportError(
+      "Stellar Expert response did not include a valid WASM hash",
+      502,
+      "INVALID_STELLAR_EXPERT_RESPONSE"
+    );
+  }
+
+  const wasmUrl = `${STELLAR_EXPERT_API_URL}/explorer/${parsed.network}/wasm/${metadata.wasm}`;
+  const wasm = await fetchStellarExpertBuffer(wasmUrl);
+  const specEntries = decodeContractSpecEntries(wasm);
+  const contractSpec = new ContractSpec(specEntries);
+
+  return {
+    ok: true,
+    receivedAt,
+    sourceUrl: parsed.normalizedUrl,
+    apiUrl,
+    wasmUrl,
+    network: parsed.network,
+    contractId: metadata.contract || parsed.contractId,
+    wasmHash: metadata.wasm,
+    creator: metadata.creator,
+    validation: metadata.validation,
+    functions: contractSpec
+      .funcs()
+      .map((fn) =>
+        buildImportedFunction(
+          metadata.contract || parsed.contractId,
+          contractSpec,
+          fn,
+          parsed.network
+        )
+      ),
   };
 }
 
@@ -314,4 +851,48 @@ export async function playgroundFeeBumpHandler(
     request: requestEnvelope,
     response: responseEnvelope,
   });
+}
+
+export async function playgroundContractImportHandler(
+  req: Request,
+  res: Response
+): Promise<void> {
+  const receivedAt = new Date().toISOString();
+  const parsed = PlaygroundContractImportSchema.safeParse(req.body);
+
+  if (!parsed.success) {
+    res.status(400).json({
+      ok: false,
+      error: "Validation failed",
+      details: parsed.error.format(),
+      receivedAt,
+    });
+    return;
+  }
+
+  const body: PlaygroundContractImportRequest = parsed.data;
+
+  try {
+    const result = await importContractInterface(body.url, receivedAt);
+    res.json(result);
+  } catch (error: unknown) {
+    if (error instanceof PlaygroundImportError) {
+      res.status(error.statusCode).json({
+        ok: false,
+        error: error.message,
+        code: error.code,
+        details: error.details,
+        receivedAt,
+      });
+      return;
+    }
+
+    const message = error instanceof Error ? error.message : String(error);
+    res.status(500).json({
+      ok: false,
+      error: `Failed to import contract ABI: ${message}`,
+      code: "CONTRACT_IMPORT_FAILED",
+      receivedAt,
+    });
+  }
 }

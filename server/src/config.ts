@@ -74,6 +74,17 @@ export interface DigestConfig {
   enabled: boolean;
 }
 
+export interface EvmSettlementConfig {
+  enabled: boolean;
+  chainId: number;
+  rpcUrl: string;
+  tokenAddress: string;
+  receiverAddress: string;
+  confirmationsRequired: number;
+  pollIntervalMs: number;
+  refundFromAddress?: string;
+}
+
 export interface Config {
   allowedOrigins: string[];
   alerting: AlertingConfig;
@@ -97,6 +108,7 @@ export interface Config {
   stellarRpcUrl?: string;
   supportedAssets?: SupportedAsset[];
   vault?: VaultConfig;
+  evmSettlement?: EvmSettlementConfig;
 }
 
 // ---------------------------------------------------------------------------
@@ -278,6 +290,38 @@ function loadDigestConfig(): DigestConfig {
   };
 }
 
+function loadEvmSettlementConfig(): EvmSettlementConfig | undefined {
+  if (process.env.FLUID_EVM_SETTLEMENT_ENABLED !== "true") {
+    return undefined;
+  }
+
+  const rpcUrl = process.env.FLUID_EVM_RPC_URL?.trim();
+  const tokenAddress = process.env.FLUID_EVM_TOKEN_ADDRESS?.trim();
+  const receiverAddress = process.env.FLUID_EVM_RECEIVER_ADDRESS?.trim();
+  const chainId = parsePositiveInt(process.env.FLUID_EVM_CHAIN_ID, 0);
+
+  if (!rpcUrl || !tokenAddress || !receiverAddress || chainId <= 0) {
+    return undefined;
+  }
+
+  return {
+    enabled: true,
+    chainId,
+    rpcUrl,
+    tokenAddress,
+    receiverAddress,
+    confirmationsRequired: parsePositiveInt(
+      process.env.FLUID_EVM_CONFIRMATIONS_REQUIRED,
+      3,
+    ),
+    pollIntervalMs: parsePositiveInt(
+      process.env.FLUID_EVM_WATCH_POLL_INTERVAL_MS,
+      5_000,
+    ),
+    refundFromAddress: process.env.FLUID_EVM_REFUND_FROM_ADDRESS?.trim() || undefined,
+  };
+}
+
 export function loadConfig(): Config {
   const baseFee = parsePositiveInt(process.env.FLUID_BASE_FEE, 100);
   const feeMultiplier = Number.parseFloat(
@@ -341,6 +385,7 @@ export function loadConfig(): Config {
     maxOperations,
     maxXdrSize,
     networkPassphrase,
+    evmSettlement: loadEvmSettlementConfig(),
     rateLimitMax,
     rateLimitWindowMs,
     stellarRpcUrl: process.env.STELLAR_RPC_URL?.trim() || undefined,

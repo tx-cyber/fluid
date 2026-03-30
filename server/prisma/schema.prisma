@@ -46,6 +46,7 @@ model Tenant {
   quotaTopUps            QuotaTopUp[]
   payments               Payment[]
   sponsoredTransactions  SponsoredTransaction[]
+  crossChainSettlements  CrossChainSettlement[]
   usageStats             TenantUsageStats[]
   tierAdjustments        TierAdjustment[]
   flaggedEvents          FlaggedEvent[]
@@ -230,16 +231,46 @@ model Transaction {
   tenantId    String?
   status      String   // PENDING, SUCCESS, FAILED
   costStroops BigInt
-  category    String      @default("Other")
-  chain       String      @default("stellar") // stellar, evm, solana, cosmos
-  createdAt   DateTime    @default(now())
-  sarReports  SARReport[]
+  category    String   @default("Other")
+  createdAt   DateTime @default(now())
+
 
   @@index([tenantId])
   @@index([status])
   @@index([txHash])
   @@index([category])
   @@index([chain])
+}
+
+model CrossChainSettlement {
+  id                   String   @id @default(uuid())
+  transactionId        String   @unique
+  transaction          Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  tenantId             String
+  tenant               Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  status               String   @default("AWAITING_EVM_PAYMENT") // AWAITING_EVM_PAYMENT, EVM_CONFIRMED, STELLAR_SETTLED, REFUNDED, REFUND_FAILED
+  sourceChainId        Int
+  sourceTokenAddress   String
+  sourceAmount         String
+  payerAddress         String
+  recipientAddress     String
+  startBlock           Int
+  confirmationsRequired Int     @default(1)
+  xdr                  String
+  submit               Boolean  @default(false)
+  feePayerPublicKey    String
+  sourceTxHash         String?
+  refundTxHash         String?
+  errorMessage         String?
+  confirmedAt          DateTime?
+  settledAt            DateTime?
+  refundedAt           DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([status])
+  @@index([tenantId])
+  @@index([sourceTxHash])
 }
 
 // In-dashboard notification centre — persisted alerts for logged-in admins.

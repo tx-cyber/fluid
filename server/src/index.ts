@@ -46,7 +46,10 @@ import {
 } from "./handlers/adminSubscriptionTiers";
 import { badgeHandler } from "./handlers/badge";
 import { feeBumpBatchHandler, feeBumpHandler } from "./handlers/feeBump";
-import { playgroundFeeBumpHandler } from "./handlers/playground";
+import {
+  playgroundContractImportHandler,
+  playgroundFeeBumpHandler,
+} from "./handlers/playground";
 import {
   incidentsHandler,
   statusPageHandler,
@@ -79,12 +82,14 @@ import prisma from "./utils/db";
 import { createLogger, serializeError } from "./utils/logger";
 import redisClient from "./utils/redis";
 import { RedisRateLimitStore } from "./utils/redisRateLimitStore";
+import { swaggerSpec } from "./swagger";
 import { initializeBalanceMonitor } from "./workers/balanceMonitor";
 import { initializeIncidentMonitor } from "./workers/incidentMonitor";
 import {
   getLedgerMonitor,
   initializeLedgerMonitor,
 } from "./workers/ledgerMonitor";
+import { healthHandler } from "./handlers/health";
 import {
   digestUnsubscribeHandler,
   sendDigestNowHandler,
@@ -121,25 +126,9 @@ import {
 import { getSpendForecastHandler } from "./handlers/adminAnalytics";
 import { getFeeMultiplierHandler } from "./handlers/adminFeeMultiplier";
 import { estimateFeeHandler } from "./handlers/estimate";
-import { exportAuditLogHandler } from "./handlers/adminAuditLog";
-import { ensureAuditLogTableIntegrity } from "./services/auditLogger";
-import { listAuditLogsHandler } from "./handlers/adminAuditLogs";
-import { getMultiChainStatsHandler } from "./handlers/adminMultiChainStats";
-import { startAuditSummaryWorker } from "./services/auditLog";
-import { swaggerSpec } from "./swagger";
-import { initializeTreasuryRefill } from "./workers/treasuryRefill";
 import { initializeDigestWorker } from "./workers/digestWorker";
-import {
-  deleteCurrentTenantHandler,
-  deleteTenantByAdminHandler,
-} from "./handlers/tenantErasure";
-import { transactionStore } from "./workers/transactionStore";
-import { TreasuryRebalancer } from "./services/treasuryRebalancer";
-import { dailyScoringWorker } from "./workers/dailyScoringWorker";
-import { crossChainSyncService } from "./services/crossChainSyncService";
-import { initializeTenantErasureWorker } from "./workers/tenantErasureWorker";
-import { initializeBridgeMonitor } from "./workers/bridgeMonitor";
-import { ipFilterMiddleware } from "./middleware/ipFilter";
+
+import { initializeTreasuryRefill } from "./workers/treasuryRefill";
 
 const logger = createLogger({ component: "server" });
 const config = loadConfig();
@@ -193,6 +182,14 @@ app.use(soc2RequestLogger);
 app.use((_req, res, next) => {
   res.setHeader("X-Fluid-Region", DEFAULT_REGION);
   next();
+});
+
+// Swagger UI — available at /docs
+app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+// Raw OpenAPI JSON spec
+app.get("/docs.json", (_req: Request, res: Response) => {
+  res.setHeader("Content-Type", "application/json");
+  res.send(swaggerSpec);
 });
 
 // Use Redis-backed store for global IP rate limiting. Falls back to memory store if Redis unavailable.
@@ -339,6 +336,15 @@ const playgroundLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+
+app.post(
+  "/playground/contract-import",
+  cors({ origin: "*" }),
+  playgroundLimiter,
+  (req: Request, res: Response, next: NextFunction) => {
+    void playgroundContractImportHandler(req, res).catch(next);
+  },
+);
 
 app.post(
   "/playground/fee-bump",
