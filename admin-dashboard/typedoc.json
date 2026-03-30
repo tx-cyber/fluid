@@ -1,0 +1,13 @@
+{
+  "entryPoints": ["app", "lib", "components", "types"],
+  "entryPointStrategy": "expand",
+  "out": "docs",
+  "name": "Fluid Admin Dashboard",
+  "readme": "README.md",
+  "includeVersion": true,
+  "searchInComments": true,
+  "skipErrorChecking": true,
+  "navigationLinks": {
+    "GitHub": "https://github.com/Stellar-Fluid/fluid"
+  }
+}

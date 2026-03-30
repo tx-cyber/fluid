@@ -1,4 +1,5 @@
 import React from "react";
+import { SearchCommand } from "./SearchCommand";
 
 interface NavbarProps {
   title: string;
@@ -149,6 +150,10 @@ export function Navbar({
             {title}
           </h1>
         </div>
+      </div>
+
+      <div style={{ flex: 1, display: "flex", justifyContent: "flex-end", paddingRight: isMobile ? 12 : 24 }}>
+        {!isMobile && <SearchCommand />}
       </div>
 
       <div ref={menuRef} style={{ position: "relative", flexShrink: 0 }}>

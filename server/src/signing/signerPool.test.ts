@@ -1,12 +1,23 @@
-import test from "node:test";
-import assert from "node:assert/strict";
-import StellarSdk from "@stellar/stellar-sdk";
-import { nativeSigner } from "./native";
-import { SignerPool } from "./signerPool";
+import { expect, it, vi } from "vitest";
 
-function createDeferred(): {
+vi.mock("./native", () => ({
+  nativeSigner: {
+    preflightSoroban: vi.fn(),
+    signPayload: vi.fn(async (_secret: string, _payload: Buffer) => Buffer.alloc(64)),
+    signPayloadFromVault: vi.fn(async () => Buffer.alloc(64)),
+  },
+}));
+
+import { SignerPool } from "./signerPool";
+import StellarSdk from "@stellar/stellar-sdk";
+import { createLogger } from "../utils/logger";
+import { nativeSigner } from "./native";
+
+const logger = createLogger({ component: "signer_pool_test" });
+
+function createDeferred (): {
   promise: Promise<void>;
-  resolve(): void;
+  resolve (): void;
 } {
   let resolve!: () => void;
   const promise = new Promise<void>((nextResolve) => {
@@ -16,7 +27,7 @@ function createDeferred(): {
   return { promise, resolve };
 }
 
-test("SignerPool signs concurrently across five distinct accounts", async () => {
+it("SignerPool signs concurrently across five distinct accounts", async () => {
   const keypairs = Array.from({ length: 5 }, () => StellarSdk.Keypair.random());
   const pool = new SignerPool(
     keypairs.map((keypair, index) => ({
@@ -49,8 +60,9 @@ test("SignerPool signs concurrently across five distinct accounts", async () => 
         txId,
       });
 
-      console.log(
-        `POOL_TEST acquire tx=${txId} account=${lease.account.publicKey} sequence=${sequence}`
+      logger.info(
+        { account: lease.account.publicKey, sequence, tx_id: txId },
+        "POOL_TEST acquire"
       );
 
       if (acquisitions.length === 5) {
@@ -64,8 +76,13 @@ test("SignerPool signs concurrently across five distinct accounts", async () => 
         Buffer.from(`payload-${txId}`)
       );
 
-      console.log(
-        `POOL_TEST signed tx=${txId} account=${lease.account.publicKey} signature_bytes=${signature.length}`
+      logger.info(
+        {
+          account: lease.account.publicKey,
+          signature_bytes: signature.length,
+          tx_id: txId,
+        },
+        "POOL_TEST signed"
       );
 
       return {
@@ -79,11 +96,10 @@ test("SignerPool signs concurrently across five distinct accounts", async () => 
 
   const results = await Promise.all(signingTasks);
   const distinctAccounts = new Set(results.map((result) => result.publicKey));
-  assert.equal(distinctAccounts.size, 5);
-  assert.deepEqual(
+  expect(distinctAccounts.size).toBe(5);
+  expect(
     results.map((result) => result.sequence),
-    ["1", "2", "3", "4", "5"]
-  );
+  ).toEqual(["1", "2", "3", "4", "5"]);
 
   const loadTestTasks = Array.from({ length: 200 }, (_, index) =>
     pool.withSigner(async (lease) => {
@@ -100,11 +116,8 @@ test("SignerPool signs concurrently across five distinct accounts", async () => 
   );
 
   const loadTestResults = await Promise.all(loadTestTasks);
-  assert.equal(loadTestResults.length, 200);
-  assert.equal(
-    new Set(loadTestResults.map((result) => result.publicKey)).size,
-    5
-  );
+  expect(loadTestResults.length).toBe(200);
+  expect(new Set(loadTestResults.map((result) => result.publicKey)).size).toBe(5);
 
   await pool.updateBalance(keypairs[0].publicKey(), 10n);
   const snapshot = pool.getSnapshot();
@@ -112,9 +125,6 @@ test("SignerPool signs concurrently across five distinct accounts", async () => 
     (account) => account.publicKey === keypairs[0].publicKey()
   );
 
-  assert.equal(deactivated?.active, false);
-  assert.equal(
-    snapshot.filter((account) => account.active).length,
-    4
-  );
+  expect(deactivated?.active).toBe(false);
+  expect(snapshot.filter((account) => account.active).length).toBe(4);
 });

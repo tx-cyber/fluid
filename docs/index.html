@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fluid Documentation Portal</title>
+    <style>
+        :root {
+            --fluid-blue: hsl(220, 91%, 54%);
+            --fluid-cyan: hsl(186, 94%, 41%);
+            --background: #ffffff;
+            --foreground: hsl(224, 71%, 4%);
+            --card-bg: #f8fafc;
+            --border: #e2e8f0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--background);
+            color: var(--foreground);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 900px;
+            width: 90%;
+            text-align: center;
+            padding: 2rem;
+        }
+
+        header {
+            margin-bottom: 3rem;
+        }
+
+        h1 {
+            font-size: 3rem;
+            margin: 0;
+            background: linear-gradient(135deg, var(--fluid-blue), var(--fluid-cyan));
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-weight: 800;
+        }
+
+        p.subtitle {
+            font-size: 1.2rem;
+            color: #64748b;
+            margin-top: 0.5rem;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-top: 2rem;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 2rem;
+            text-decoration: none;
+            color: inherit;
+            transition: all 0.2s ease;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .card:hover {
+            transform: translateY(-4px);
+            border-color: var(--fluid-blue);
+            box-shadow: 0 10px 15px -3px rgba(37, 99, 235, 0.1);
+        }
+
+        .card h2 {
+            margin: 0;
+            font-size: 1.25rem;
+            color: var(--fluid-blue);
+        }
+
+        .card p {
+            margin: 0;
+            font-size: 0.9rem;
+            color: #64748b;
+        }
+
+        .icon {
+            width: 48px;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 10px;
+            background: white;
+            color: var(--fluid-blue);
+            font-size: 1.5rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        footer {
+            margin-top: 4rem;
+            font-size: 0.875rem;
+            color: #94a3b8;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Fluid Docs</h1>
+            <p class="subtitle">Automated Documentation Portal</p>
+        </header>
+
+        <div class="grid">
+            <a href="client/index.html" class="card">
+                <div class="icon">📦</div>
+                <h2>Client SDK</h2>
+                <p>TypeScript library for Stellar fee sponsorship</p>
+            </a>
+            <a href="server/index.html" class="card">
+                <div class="icon">☁️</div>
+                <h2>Server API</h2>
+                <p>Backend API and transaction orchestration</p>
+            </a>
+            <a href="dashboard/index.html" class="card">
+                <div class="icon">📊</div>
+                <h2>Dashboard</h2>
+                <p>Admin interface for management and monitoring</p>
+            </a>
+            <a href="rust/fluid_core/index.html" class="card">
+                <div class="icon">🦀</div>
+                <h2>Rust Core</h2>
+                <p>Performance-critical core components</p>
+            </a>
+        </div>
+
+        <footer>
+            &copy; 2026 Fluid Project. Generated from source comments.
+        </footer>
+    </div>
+</body>
+</html>

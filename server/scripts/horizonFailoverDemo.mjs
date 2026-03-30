@@ -1,16 +1,30 @@
 import http from "node:http";
+import pino from "pino";
+
+const logger = pino({
+  level: process.env.LOG_LEVEL ?? "debug",
+  timestamp: pino.stdTimeFunctions.isoTime,
+  base: {
+    component: "horizon_failover_demo",
+    env: process.env.NODE_ENV ?? "development",
+    service: "fluid-server",
+  },
+  formatters: {
+    level: (level) => ({ level }),
+  },
+});
 
 const nodeAUrl = "http://127.0.0.1:4101";
 const nodeBUrl = "http://127.0.0.1:4102";
 
-function startMockServer(port, handler) {
+function startMockServer (port, handler) {
   return new Promise((resolve) => {
     const server = http.createServer(handler);
     server.listen(port, "127.0.0.1", () => resolve(server));
   });
 }
 
-function closeServer(server) {
+function closeServer (server) {
   return new Promise((resolve, reject) => {
     server.close((error) => {
       if (error) {
@@ -23,7 +37,7 @@ function closeServer(server) {
   });
 }
 
-function isRetryable(error) {
+function isRetryable (error) {
   const status = error.status;
   if ([408, 429, 500, 502, 503, 504].includes(status)) {
     return true;
@@ -48,12 +62,13 @@ class DemoFailoverClient {
     }));
   }
 
-  async submitTransaction(payload) {
+  async submitTransaction (payload) {
     for (let index = 0; index < this.nodes.length; index += 1) {
       const node = this.nodes[index];
       const attempt = index + 1;
-      console.log(
-        `[HorizonFailover] Submit attempt ${attempt}/${this.nodes.length} via ${node.url}`
+      logger.info(
+        { attempt, node_url: node.url, total_nodes: this.nodes.length },
+        "Submitting transaction via Horizon node"
       );
 
       try {
@@ -72,17 +87,23 @@ class DemoFailoverClient {
         const data = await response.json();
         node.state = "Active";
         node.consecutiveFailures = 0;
-        console.log(`[HorizonFailover] Node ${node.url} status => Active`);
-        console.log(
-          `[HorizonFailover] Submission succeeded on ${node.url} with hash ${data.hash}`
+        logger.info({ node_state: node.state, node_url: node.url }, "Horizon node marked active");
+        logger.info(
+          { node_url: node.url, tx_hash: data.hash },
+          "Transaction submission succeeded"
         );
         return data;
       } catch (error) {
         node.state = "Inactive";
         node.consecutiveFailures += 1;
-        console.log(`[HorizonFailover] Node ${node.url} status => Inactive`);
-        console.log(
-          `[HorizonFailover] Submission failed on ${node.url} (${isRetryable(error) ? "retryable" : "final"}) - ${error.message}`
+        logger.warn({ node_state: node.state, node_url: node.url }, "Horizon node marked inactive");
+        logger.warn(
+          {
+            disposition: isRetryable(error) ? "retryable" : "final",
+            error_message: error.message,
+            node_url: node.url,
+          },
+          "Transaction submission failed"
         );
 
         if (!isRetryable(error)) {
@@ -94,7 +115,7 @@ class DemoFailoverClient {
     throw new Error("All Horizon nodes failed");
   }
 
-  getNodeStatuses() {
+  getNodeStatuses () {
     return this.nodes;
   }
 }
@@ -123,12 +144,8 @@ try {
   const client = new DemoFailoverClient([nodeAUrl, nodeBUrl]);
   const result = await client.submitTransaction({ envelopeXdr: "AAAA-demo" });
 
-  console.log("");
-  console.log("Final result:");
-  console.log(JSON.stringify(result, null, 2));
-  console.log("");
-  console.log("Node status snapshot:");
-  console.log(JSON.stringify(client.getNodeStatuses(), null, 2));
+  logger.info({ result }, "Final result");
+  logger.info({ node_statuses: client.getNodeStatuses() }, "Node status snapshot");
 } finally {
   await closeServer(nodeAServer);
   await closeServer(nodeBServer);

@@ -8,7 +8,17 @@ export type ErrorCode =
   | "AUTH_FAILED"
   | "INTERNAL_ERROR"
   | "PAYLOAD_TOO_LARGE"
-  | "TOO_MANY_OPERATIONS";
+  | "TOO_MANY_OPERATIONS"
+  | "NETWORK_MISMATCH"
+  | "QUOTA_EXCEEDED"
+  | "SLIPPAGE_TOO_HIGH"
+  | "SETTLEMENT_VERIFICATION_FAILED"
+  | "UNSUPPORTED_ASSET"
+  | "VALIDATION_ERROR"
+  | "CONFIG_ERROR"
+  | "EVM_SPONSOR_FAILED"
+  | "SOLANA_SPONSOR_FAILED"
+  | "SANCTIONED_ADDRESS";
 
 export class AppError extends Error {
   public readonly statusCode: number;

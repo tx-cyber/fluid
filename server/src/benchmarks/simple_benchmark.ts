@@ -1,7 +1,12 @@
 import * as fs from "fs";
 import * as os from "os";
-import { performance } from "perf_hooks";
+
+import { createLogger, serializeError } from "../utils/logger";
+
 import { nativeSigner } from "../signing/native";
+import { performance } from "perf_hooks";
+
+const logger = createLogger({ component: "simple_benchmark" });
 
 interface BenchmarkResult {
   configuration: string;
@@ -16,20 +21,25 @@ interface BenchmarkResult {
 }
 
 class SimpleBenchmark {
-  private secretKey =
-    "SC6KWQBWRYDU3KMWOZZLFC5FRJEG3FN6HRG6V6OX5GIWTBQ5T35R3JGM";
+  private secretKey = process.env.FLUID_FEE_PAYER_SECRET ?? "";
   private testPayload = Buffer.alloc(100, 1);
 
-  async runSingleBenchmark(
+  async runSingleBenchmark (
     name: string,
     workerThreads: number,
     maxBlockingThreads: number,
     stackSize: number,
     duration: number = 30,
   ): Promise<BenchmarkResult> {
-    console.log(`\n🚀 Running benchmark: ${name}`);
-    console.log(
-      `Worker threads: ${workerThreads}, Max blocking: ${maxBlockingThreads}, Stack: ${stackSize / 1024 / 1024}MB`,
+    logger.info(
+      {
+        duration_seconds: duration,
+        max_blocking_threads: maxBlockingThreads,
+        name,
+        stack_size_mb: stackSize / 1024 / 1024,
+        worker_threads: workerThreads,
+      },
+      "Running benchmark"
     );
 
     // Set environment variables for Rust runtime
@@ -49,7 +59,7 @@ class SimpleBenchmark {
     try {
       await nativeSigner.signPayload(this.secretKey, this.testPayload);
     } catch (error) {
-      console.error("Warm up failed:", error);
+      logger.error({ ...serializeError(error), benchmark_name: name }, "Benchmark warm up failed");
       throw error;
     }
 
@@ -74,8 +84,14 @@ class SimpleBenchmark {
     const averageLatency =
       latencies.reduce((sum, lat) => sum + lat, 0) / latencies.length;
 
-    console.log(
-      `✅ ${name}: ${requestsPerSecond.toFixed(2)} RPS, ${successRate.toFixed(2)}% success, ${averageLatency.toFixed(2)}ms avg latency`,
+    logger.info(
+      {
+        average_latency_ms: averageLatency,
+        benchmark_name: name,
+        requests_per_second: requestsPerSecond,
+        success_rate: successRate,
+      },
+      "Benchmark completed"
     );
 
     return {
@@ -91,7 +107,7 @@ class SimpleBenchmark {
     };
   }
 
-  generateReport(results: BenchmarkResult[]): string {
+  generateReport (results: BenchmarkResult[]): string {
     let report = "# Tokio Runtime Performance Report\n\n";
     report += `Generated: ${new Date().toISOString()}\n`;
     report += `System: ${os.cpus().length} CPU cores\n\n`;
@@ -143,7 +159,7 @@ class SimpleBenchmark {
   }
 }
 
-async function runBenchmarks(): Promise<void> {
+async function runBenchmarks (): Promise<void> {
   const benchmark = new SimpleBenchmark();
   const results: BenchmarkResult[] = [];
 
@@ -183,8 +199,7 @@ async function runBenchmarks(): Promise<void> {
     },
   ];
 
-  console.log("🎯 Starting Tokio Runtime Performance Benchmarks");
-  console.log(`System: ${numCores} CPU cores`);
+  logger.info({ cpu_cores: numCores }, "Starting Tokio runtime performance benchmarks");
 
   for (const config of configs) {
     try {
@@ -196,31 +211,37 @@ async function runBenchmarks(): Promise<void> {
       );
       results.push(result);
     } catch (error) {
-      console.error(`❌ Benchmark ${config.name} failed:`, error);
+      logger.error(
+        { ...serializeError(error), benchmark_name: config.name },
+        "Benchmark execution failed"
+      );
     }
   }
 
   if (results.length > 0) {
     const report = benchmark.generateReport(results);
     fs.writeFileSync("tokio_performance_report.md", report);
-    console.log("\n📊 Performance report saved to tokio_performance_report.md");
+    logger.info({ report_path: "tokio_performance_report.md" }, "Performance report saved");
 
     // Show summary
     const bestRPS = Math.max(...results.map((r) => r.requestsPerSecond));
-    console.log(`\n🏆 Best performance: ${bestRPS.toFixed(2)} RPS`);
+    logger.info({ best_requests_per_second: bestRPS }, "Best benchmark performance");
 
     if (bestRPS >= 1000) {
-      console.log("🎉 SUCCESS: Achieved 1000+ RPS target!");
+      logger.info({ best_requests_per_second: bestRPS, target_rps: 1000 }, "Benchmark target achieved");
     } else {
-      console.log("❌ FAILED: Did not achieve 1000+ RPS target");
+      logger.warn({ best_requests_per_second: bestRPS, target_rps: 1000 }, "Benchmark target not achieved");
     }
   } else {
-    console.log("❌ No benchmarks completed successfully");
+    logger.warn("No benchmarks completed successfully");
   }
 }
 
 if (require.main === module) {
-  runBenchmarks().catch(console.error);
+  runBenchmarks().catch((error) => {
+    logger.error({ ...serializeError(error) }, "Benchmark run failed");
+    process.exitCode = 1;
+  });
 }
 
 export { BenchmarkResult, SimpleBenchmark };

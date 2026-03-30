@@ -1,5 +1,22 @@
 use std::fmt;
 use std::str::FromStr;
+mod blocklist;
+mod heuristics;
+
+use blocklist::Blocklist;
+use heuristics::RequestTracker;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+static mut BLOCKLIST: Option<Blocklist> = None;
+static mut TRACKER: Option<RequestTracker> = None;
+
+fn now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+}
+
 
 use ed25519_dalek::{Signer, SigningKey};
 use sha2::{Digest, Sha256};
@@ -12,6 +29,12 @@ use stellar_xdr::curr::{
 };
 use wasm_bindgen::prelude::*;
 
+// These modules are primarily used by the native server binary.
+// We expose them from the library so unit tests + coverage tools can exercise them.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod config;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod error;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod grpc;
 
@@ -127,16 +150,47 @@ pub fn sign_transaction_xdr_internal(
     network_passphrase: &str,
 ) -> Result<SigningResult, SigningError> {
     let signer = signer_context(secret_key)?;
-    let mut envelope = parse_transaction_envelope(unsigned_xdr)?;
-    let tx_hash = transaction_hash(&envelope, network_passphrase)?;
-    let signed_envelope = append_signature(&mut envelope, &signer, &tx_hash)?;
 
-    Ok(SigningResult {
-        signed_xdr: signed_envelope,
-        signer_public_key: signer.public_key,
-        transaction_hash_hex: hex::encode(tx_hash),
-        signature_count: envelope_signature_count(&envelope),
-    })
+
+//  
+let public_key = signer.public_key.clone();
+
+unsafe {
+    if BLOCKLIST.is_none() {
+        BLOCKLIST = Some(Blocklist::new());
+    }
+    if TRACKER.is_none() {
+        TRACKER = Some(RequestTracker::new());
+    }
+
+    let blocklist = BLOCKLIST.as_mut().unwrap();
+    let tracker = TRACKER.as_mut().unwrap();
+
+    if blocklist.is_blocked(&public_key, now()) {
+        return Err("Account is blocked".into());
+    }
+
+    if tracker.is_suspicious(&public_key, now()) {
+        blocklist.add(
+    public_key.clone(),
+    "Suspicious activity detected".to_string(),
+    now(),
+);
+        return Err("Account flagged and blocked".into());
+    }
+}
+//  END BLOCK
+
+let mut envelope = parse_transaction_envelope(unsigned_xdr)?;
+let tx_hash = transaction_hash(&envelope, network_passphrase)?;
+let signed_envelope = append_signature(&mut envelope, &signer, &tx_hash)?;
+
+Ok(SigningResult {
+    signed_xdr: signed_envelope,
+    signer_public_key: signer.public_key,
+    transaction_hash_hex: hex::encode(tx_hash),
+    signature_count: envelope_signature_count(&envelope),
+})
 }
 
 #[derive(Debug)]
@@ -288,6 +342,7 @@ fn sha256(input: impl AsRef<[u8]>) -> [u8; 32] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use stellar_xdr::curr::{DecoratedSignature, Signature, SignatureHint, VecM};
 
     const TEST_NETWORK_PASSPHRASE: &str = "Test SDF Network ; September 2015";
     const TEST_SECRET_KEY: &str = "SDMOYUZMPBA5SDXYC7346UPSFC3LA2QSHWI67M7ZW6G2D55TJ2H3A4IE";
@@ -320,5 +375,128 @@ mod tests {
         let message = error.to_string();
 
         assert!(message.contains("invalid Stellar secret key"));
+    }
+
+    #[test]
+    fn public_key_wrapper_returns_expected_key() {
+        let public_key = public_key_from_secret(TEST_SECRET_KEY).unwrap();
+        assert_eq!(public_key, TEST_PUBLIC_KEY);
+    }
+
+    #[test]
+    fn transaction_hash_wrapper_matches_fixture_hash() {
+        let tx_hash = transaction_hash_hex(UNSIGNED_XDR, TEST_NETWORK_PASSPHRASE).unwrap();
+        assert_eq!(tx_hash, TX_HASH_HEX);
+    }
+
+    #[test]
+    fn wasm_wrapper_signs_fixture_transaction() {
+        let result = sign_transaction_xdr(UNSIGNED_XDR, TEST_SECRET_KEY, TEST_NETWORK_PASSPHRASE)
+            .expect("wasm-compatible wrapper should sign the fixture XDR");
+
+        assert_eq!(result.signed_xdr(), SIGNED_XDR);
+        assert_eq!(result.signer_public_key(), TEST_PUBLIC_KEY);
+        assert_eq!(result.transaction_hash_hex(), TX_HASH_HEX);
+        assert_eq!(result.signature_count(), 1);
+    }
+
+    #[test]
+    fn parse_transaction_envelope_rejects_invalid_xdr() {
+        let error = parse_transaction_envelope("not-base64").unwrap_err();
+        assert!(matches!(error, SigningError::InvalidEnvelope(_)));
+    }
+
+    #[test]
+    fn helper_functions_produce_expected_values() {
+        let signer = signer_context(TEST_SECRET_KEY).unwrap();
+        let envelope = parse_transaction_envelope(SIGNED_XDR).unwrap();
+
+        assert_eq!(envelope_signature_count(&envelope), 1);
+        assert_eq!(
+            signature_hint(&signer.public_key_bytes),
+            [0x3A, 0x78, 0xEA, 0x3C]
+        );
+        assert_eq!(
+            hex::encode(sha256("fluid")),
+            "5e0502adfb96f1f1544d24f00c99b269c12570acfd994666ffb86424e0835370"
+        );
+    }
+
+    #[test]
+    fn transaction_hash_matches_internal_fixture_hash() {
+        let envelope = parse_transaction_envelope(UNSIGNED_XDR).unwrap();
+        let tx_hash = transaction_hash(&envelope, TEST_NETWORK_PASSPHRASE).unwrap();
+
+        assert_eq!(hex::encode(tx_hash), TX_HASH_HEX);
+    }
+
+    #[test]
+    fn push_signature_rejects_overflow() {
+        let existing: VecM<DecoratedSignature, 20> = (0..20)
+            .map(|_| DecoratedSignature {
+                hint: SignatureHint([0, 0, 0, 0]),
+                signature: Signature(vec![1u8; 64].try_into().unwrap()),
+            })
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+
+        let result = push_signature(
+            &existing,
+            DecoratedSignature {
+                hint: SignatureHint([1, 2, 3, 4]),
+                signature: Signature(vec![2u8; 64].try_into().unwrap()),
+            },
+        );
+
+        assert!(matches!(result, Err(SigningError::SignatureOverflow)));
+    }
+
+    #[test]
+    fn signature_hint_uses_last_4_bytes() {
+        let bytes = [
+            0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+            24, 25, 26, 27, 28, 29, 30, 31,
+        ];
+        assert_eq!(signature_hint(&bytes), [28, 29, 30, 31]);
+    }
+
+    #[test]
+    fn sha256_produces_expected_digest() {
+        // Known SHA-256("abc") test vector.
+        let digest = sha256(b"abc");
+        assert_eq!(
+            hex::encode(digest),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
+
+    #[test]
+    fn envelope_signature_count_counts_all_envelope_variants() {
+        let mut env = parse_transaction_envelope(UNSIGNED_XDR).unwrap();
+        assert_eq!(envelope_signature_count(&env), 0);
+
+        // Append a signature and ensure count increments.
+        let signer = signer_context(TEST_SECRET_KEY).unwrap();
+        let tx_hash = transaction_hash(&env, TEST_NETWORK_PASSPHRASE).unwrap();
+        let _ = append_signature(&mut env, &signer, &tx_hash).unwrap();
+        assert_eq!(envelope_signature_count(&env), 1);
+    }
+
+    #[test]
+    fn push_signature_appends_when_under_limit() {
+        let signatures: VecM<DecoratedSignature, 20> = Vec::<DecoratedSignature>::new()
+            .try_into()
+            .expect("empty vec should fit");
+        let decorated = DecoratedSignature {
+            hint: SignatureHint([0, 0, 0, 0]),
+            signature: Signature(
+                vec![1u8, 2, 3, 4]
+                    .try_into()
+                    .expect("signature bytes should fit BytesM<64>"),
+            ),
+        };
+        let updated = push_signature(&signatures, decorated).unwrap();
+        assert_eq!(updated.len(), 1);
     }
 }

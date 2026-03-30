@@ -1,17 +1,52 @@
 {
   "name": "fluid-client",
   "version": "0.1.0",
-  "description": "Fluid client library for gasless Stellar transactions",
+  "description": "Fluid client library for gasless Stellar transactions with Web Worker support",
   "main": "dist/index.js",
+  "browser": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/**/*",
+    "src/**/*",
+    "README.md",
+    "tsup.config.ts"
+  ],
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./worker": {
+      "import": "./dist/workers/signingWorker.js",
+      "types": "./dist/workers/signingWorker.d.ts"
+    }
+  },
   "scripts": {
     "build": "tsc",
+    "build:worker": "tsc src/workers/signingWorker.ts --outDir dist --target ES2020 --module ESNext --lib ES2020,WebWorker,DOM",
+    "build:standalone": "tsup --config tsup.config.ts",
     "start": "node dist/index.js",
-    "dev": "ts-node src/index.ts"
+    "dev": "ts-node src/index.ts",
+    "lint": "echo \"No lint configured\"",
+    "format:check": "echo \"No format check configured\"",
+    "docs": "typedoc",
+    "test": "vitest run",
+    "demo": "python -m http.server 8080",
+    "demo:sac-transfer-xdr": "ts-node src/examples/sacTransferXdr.ts",
+    "demo:wait-confirmation": "ts-node src/demo/waitForConfirmation.ts",
+    "demo:wait-confirmation-only": "ts-node src/demo/waitForConfirmationOnly.ts",
+    "test:compat": "ts-node test/stellarCompatibility.test.ts",
+    "analyze": "tsup src/index.ts --format esm --metafile"
   },
   "keywords": [
     "stellar",
     "fee-bump",
-    "gasless"
+    "gasless",
+    "web-worker",
+    "wasm",
+    "cryptography",
+    "performance"
   ],
   "author": "",
   "license": "ISC",
@@ -19,9 +54,21 @@
     "@stellar/stellar-sdk": "^11.3.0",
     "dotenv": "^16.3.1"
   },
+  "peerDependencies": {
+    "react": ">=18",
+    "vue": ">=3"
+  },
   "devDependencies": {
     "@types/node": "^20.10.0",
+    "@types/react": "^18.3.18",
+    "msw": "^2.12.14",
+    "rollup-plugin-visualizer": "^7.0.1",
+    "stellar-sdk-v10": "npm:stellar-sdk@10.4.1",
+    "stellar-sdk-v11": "npm:@stellar/stellar-sdk@11.3.0",
     "ts-node": "^10.9.2",
-    "typescript": "^5.3.3"
+    "tsup": "^8.5.1",
+    "typedoc": "^0.28.18",
+    "typescript": "^5.3.3",
+    "vitest": "^4.1.2"
   }
 }

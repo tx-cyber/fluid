@@ -1,7 +1,12 @@
-import { performance } from "perf_hooks";
-import * as os from "os";
 import * as fs from "fs";
+import * as os from "os";
+
+import { createLogger, serializeError } from "../utils/logger";
+
 import { nativeSigner } from "../signing/native";
+import { performance } from "perf_hooks";
+
+const logger = createLogger({ component: "load_test_benchmark" });
 
 interface BenchmarkConfig {
   name: string;
@@ -28,13 +33,11 @@ interface BenchmarkResult {
 
 class LoadTester {
   public results: BenchmarkResult[] = [];
-  private secretKey =
-    "SCFPATHARWYMJJXGSBWECWBZRWHDZTQFEANMELJCCMRQG4JNYMFPKUZ2V";
+  private secretKey = process.env.FLUID_FEE_PAYER_SECRET ?? "";
   private testPayload = Buffer.alloc(100, 1);
 
-  async runBenchmark(config: BenchmarkConfig): Promise<BenchmarkResult> {
-    console.log(`\n🚀 Starting benchmark: ${config.name}`);
-    console.log(`Configuration:`, config);
+  async runBenchmark (config: BenchmarkConfig): Promise<BenchmarkResult> {
+    logger.info({ config }, "Starting load test benchmark");
 
     // Initialize native signer
     await this.initializeNativeSigner();
@@ -100,21 +103,24 @@ class LoadTester {
       errors,
     };
 
-    console.log(`✅ Completed ${config.name}:`);
-    console.log(`   Requests/sec: ${result.requestsPerSecond.toFixed(2)}`);
-    console.log(
-      `   Success rate: ${((successfulRequests / totalRequests) * 100).toFixed(2)}%`,
+    logger.info(
+      {
+        average_latency_ms: result.averageLatency,
+        benchmark_name: config.name,
+        cpu_usage: result.cpuUsage,
+        memory_usage_mb: result.memoryUsage,
+        p95_latency_ms: result.p95Latency,
+        requests_per_second: result.requestsPerSecond,
+        success_rate: totalRequests === 0 ? 0 : (successfulRequests / totalRequests) * 100,
+      },
+      "Completed load test benchmark"
     );
-    console.log(`   Avg latency: ${result.averageLatency.toFixed(2)}ms`);
-    console.log(`   P95 latency: ${result.p95Latency.toFixed(2)}ms`);
-    console.log(`   CPU usage: ${result.cpuUsage.toFixed(2)}%`);
-    console.log(`   Memory usage: ${result.memoryUsage.toFixed(2)}MB`);
 
     this.results.push(result);
     return result;
   }
 
-  private async workerLoop(
+  private async workerLoop (
     endTime: number,
     latencies: number[],
     errors: string[],
@@ -133,16 +139,16 @@ class LoadTester {
     }
   }
 
-  async initializeNativeSigner() {
+  async initializeNativeSigner () {
     try {
       await nativeSigner.signPayload(this.secretKey, this.testPayload);
     } catch (error) {
-      console.error("Failed to initialize native signer:", error);
+      logger.error({ ...serializeError(error) }, "Failed to initialize native signer");
       throw error;
     }
   }
 
-  generateReport(): string {
+  generateReport (): string {
     let report = "# Tokio Runtime Performance Report\n\n";
     report += `Generated: ${new Date().toISOString()}\n\n`;
 
@@ -208,7 +214,7 @@ class LoadTester {
   }
 }
 
-async function runAllBenchmarks(): Promise<void> {
+async function runAllBenchmarks (): Promise<void> {
   const tester = new LoadTester();
 
   const configs: BenchmarkConfig[] = [
@@ -246,8 +252,7 @@ async function runAllBenchmarks(): Promise<void> {
     },
   ];
 
-  console.log("🎯 Starting Tokio Runtime Performance Benchmarks");
-  console.log(`System: ${os.cpus().length} CPU cores`);
+  logger.info({ cpu_cores: os.cpus().length }, "Starting Tokio runtime performance benchmarks");
 
   for (const config of configs) {
     await tester.runBenchmark(config);
@@ -258,23 +263,28 @@ async function runAllBenchmarks(): Promise<void> {
   // Save report to file
   fs.writeFileSync("tokio_performance_report.md", report);
 
-  console.log("\n📊 Performance report saved to tokio_performance_report.md");
+  logger.info({ report_path: "tokio_performance_report.md" }, "Performance report saved");
 
   // Check if we achieved the 1000 RPS target
   const maxRPS = Math.max(...tester.results.map((r) => r.requestsPerSecond));
   if (maxRPS >= 1000) {
-    console.log(
-      `🎉 SUCCESS: Achieved ${maxRPS.toFixed(2)} RPS (target: 1000 RPS)`,
+    logger.info(
+      { max_requests_per_second: maxRPS, target_rps: 1000 },
+      "Benchmark target achieved"
     );
   } else {
-    console.log(
-      `❌ FAILED: Only achieved ${maxRPS.toFixed(2)} RPS (target: 1000 RPS)`,
+    logger.warn(
+      { max_requests_per_second: maxRPS, target_rps: 1000 },
+      "Benchmark target not achieved"
     );
   }
 }
 
 if (require.main === module) {
-  runAllBenchmarks().catch(console.error);
+  runAllBenchmarks().catch((error) => {
+    logger.error({ ...serializeError(error) }, "Load test benchmark run failed");
+    process.exitCode = 1;
+  });
 }
 
 export { BenchmarkConfig, BenchmarkResult, LoadTester };

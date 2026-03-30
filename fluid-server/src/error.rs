@@ -40,3 +40,22 @@ impl IntoResponse for AppError {
             .into_response()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn app_error_new_sets_fields() {
+        let err = AppError::new(StatusCode::BAD_REQUEST, "BAD", "nope");
+        assert_eq!(err.code, "BAD");
+        assert_eq!(err.message, "nope");
+        assert_eq!(err.status, StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn into_response_preserves_status_code() {
+        let res = AppError::new(StatusCode::FORBIDDEN, "AUTH_FAILED", "denied").into_response();
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+    }
+}

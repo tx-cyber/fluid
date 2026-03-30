@@ -1,8 +1,10 @@
-import StellarSdk from "@stellar/stellar-sdk";
 import {
   Config,
   HorizonSelectionStrategy,
 } from "../config";
+import { createLogger, serializeError } from "../utils/logger";
+
+import StellarSdk from "@stellar/stellar-sdk";
 
 export type HorizonNodeState = "Active" | "Inactive";
 
@@ -26,9 +28,11 @@ export interface HorizonSubmissionResult {
   attempts: number;
 }
 
+const logger = createLogger({ component: "horizon_failover" });
+
 type RetryDisposition = "retryable" | "final";
 
-function formatError(error: unknown): string {
+function formatError (error: unknown): string {
   if (error instanceof Error) {
     return error.message;
   }
@@ -36,7 +40,7 @@ function formatError(error: unknown): string {
   return String(error);
 }
 
-function getStatusCode(error: any): number | undefined {
+function getStatusCode (error: any): number | undefined {
   return (
     error?.response?.status ||
     error?.response?.statusCode ||
@@ -45,11 +49,11 @@ function getStatusCode(error: any): number | undefined {
   );
 }
 
-function getErrorCode(error: any): string | undefined {
+function getErrorCode (error: any): string | undefined {
   return error?.code || error?.cause?.code;
 }
 
-function classifySubmissionError(error: any): RetryDisposition {
+function classifySubmissionError (error: any): RetryDisposition {
   const statusCode = getStatusCode(error);
 
   if (statusCode !== undefined) {
@@ -113,18 +117,18 @@ export class HorizonFailoverClient {
     }));
   }
 
-  static fromConfig(config: Config): HorizonFailoverClient {
+  static fromConfig (config: Config): HorizonFailoverClient {
     return new HorizonFailoverClient(
       config.horizonUrls,
       config.horizonSelectionStrategy
     );
   }
 
-  getNodeStatuses(): HorizonNodeStatus[] {
+  getNodeStatuses (): HorizonNodeStatus[] {
     return this.nodes.map((node) => ({ ...node.status }));
   }
 
-  async submitTransaction(
+  async submitTransaction (
     transaction: any
   ): Promise<HorizonSubmissionResult> {
     const orderedNodes = this.getOrderedNodes();
@@ -134,15 +138,26 @@ export class HorizonFailoverClient {
       const node = orderedNodes[attemptIndex];
       const attemptNumber = attemptIndex + 1;
 
-      console.log(
-        `[HorizonFailover] Submit attempt ${attemptNumber}/${orderedNodes.length} via ${node.status.url}`
+      logger.info(
+        {
+          attempt: attemptNumber,
+          node_url: node.status.url,
+          strategy: this.strategy,
+          total_nodes: orderedNodes.length,
+        },
+        "Submitting transaction via Horizon node"
       );
 
       try {
         const result = await node.server.submitTransaction(transaction);
         this.markNodeActive(node);
-        console.log(
-          `[HorizonFailover] Submission succeeded on ${node.status.url} with hash ${result.hash}`
+        logger.info(
+          {
+            attempt: attemptNumber,
+            node_url: node.status.url,
+            tx_hash: result.hash,
+          },
+          "Transaction submission succeeded"
         );
 
         return {
@@ -154,8 +169,14 @@ export class HorizonFailoverClient {
         lastError = error;
         const disposition = classifySubmissionError(error);
         this.markNodeInactive(node, error);
-        console.warn(
-          `[HorizonFailover] Submission failed on ${node.status.url} (${disposition}) - ${formatError(error)}`
+        logger.warn(
+          {
+            ...serializeError(error),
+            attempt: attemptNumber,
+            disposition,
+            node_url: node.status.url,
+          },
+          "Transaction submission failed on Horizon node"
         );
 
         if (disposition === "final") {
@@ -167,7 +188,7 @@ export class HorizonFailoverClient {
     throw lastError;
   }
 
-  async getTransaction(
+  async getTransaction (
     hash: string
   ): Promise<any> {
     const orderedNodes = this.getOrderedNodes();
@@ -184,8 +205,14 @@ export class HorizonFailoverClient {
 
         if (disposition === "retryable") {
           this.markNodeInactive(node, error);
-          console.warn(
-            `[HorizonFailover] Transaction lookup failed on ${node.status.url} (retryable) - ${formatError(error)}`
+          logger.warn(
+            {
+              ...serializeError(error),
+              disposition,
+              node_url: node.status.url,
+              tx_hash: hash,
+            },
+            "Transaction lookup failed on Horizon node"
           );
           continue;
         }
@@ -197,7 +224,7 @@ export class HorizonFailoverClient {
     throw lastError;
   }
 
-  private getOrderedNodes(): HorizonNodeRuntimeState[] {
+  private getOrderedNodes (): HorizonNodeRuntimeState[] {
     if (this.strategy === "round_robin") {
       const start = this.roundRobinIndex % this.nodes.length;
       this.roundRobinIndex = (this.roundRobinIndex + 1) % this.nodes.length;
@@ -210,33 +237,48 @@ export class HorizonFailoverClient {
     return [...activeNodes, ...inactiveNodes];
   }
 
-  private markNodeActive(node: HorizonNodeRuntimeState): void {
+  private markNodeActive (node: HorizonNodeRuntimeState): void {
     node.status.state = "Active";
     node.status.consecutiveFailures = 0;
     node.status.lastError = undefined;
     node.status.lastCheckedAt = new Date().toISOString();
     node.status.lastSuccessAt = node.status.lastCheckedAt;
-    console.log(`[HorizonFailover] Node ${node.status.url} status => Active`);
+    logger.info(
+      {
+        consecutive_failures: node.status.consecutiveFailures,
+        node_state: node.status.state,
+        node_url: node.status.url,
+      },
+      "Horizon node marked active"
+    );
   }
 
-  private markNodeInactive(node: HorizonNodeRuntimeState, error: unknown): void {
+  private markNodeInactive (node: HorizonNodeRuntimeState, error: unknown): void {
     node.status.state = "Inactive";
     node.status.consecutiveFailures += 1;
     node.status.lastError = formatError(error);
     node.status.lastCheckedAt = new Date().toISOString();
-    console.log(`[HorizonFailover] Node ${node.status.url} status => Inactive`);
+    logger.warn(
+      {
+        consecutive_failures: node.status.consecutiveFailures,
+        last_error: node.status.lastError,
+        node_state: node.status.state,
+        node_url: node.status.url,
+      },
+      "Horizon node marked inactive"
+    );
   }
 }
 
 let sharedClient: HorizonFailoverClient | null = null;
 
-export function initializeHorizonFailoverClient(
+export function initializeHorizonFailoverClient (
   config: Config
 ): HorizonFailoverClient {
   sharedClient = HorizonFailoverClient.fromConfig(config);
   return sharedClient;
 }
 
-export function getHorizonFailoverClient(): HorizonFailoverClient | null {
+export function getHorizonFailoverClient (): HorizonFailoverClient | null {
   return sharedClient;
 }

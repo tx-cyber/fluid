@@ -12,12 +12,19 @@ export interface SignerPoolOptions {
   selectionStrategy?: SignerSelectionStrategy;
 }
 
+export type SignerAccountStatus =
+  | "active"
+  | "low_balance"
+  | "sequence_error"
+  | "inactive";
+
 export interface PoolAccountSnapshot {
   active: boolean;
   balance: string | null;
   inFlight: number;
   publicKey: string;
   sequenceNumber: string | null;
+  status: SignerAccountStatus;
   totalUses: number;
 }
 
@@ -29,6 +36,7 @@ export interface PooledSignerAccount {
   publicKey: string;
   secret: string;
   sequenceNumber: bigint | null;
+  status: SignerAccountStatus;
   totalUses: number;
 }
 
@@ -123,6 +131,7 @@ export class SignerPool {
       publicKey: account.keypair.publicKey(),
       secret: account.secret,
       sequenceNumber: parseBigIntValue(account.initialSequenceNumber),
+      status: "active",
       totalUses: 0,
     }));
     this.lowBalanceThreshold = parseBigIntValue(options.lowBalanceThreshold);
@@ -148,6 +157,52 @@ export class SignerPool {
       }),
       options
     );
+  }
+
+  async addAccount(account: {
+    initialSequenceNumber?: bigint | number | string;
+    keypair: StellarKeypair;
+    secret: string;
+  }): Promise<void> {
+    await this.mutex.runExclusive(async () => {
+      const publicKey = account.keypair.publicKey();
+      const existing = this.accounts.find((candidate) => candidate.publicKey === publicKey);
+      if (existing) {
+        throw new Error(`Signer account already exists: ${publicKey}`);
+      }
+
+      this.accounts.push({
+        active: true,
+        balance: null,
+        inFlight: 0,
+        index: this.accounts.length,
+        keypair: account.keypair,
+        publicKey,
+        secret: account.secret,
+        sequenceNumber: parseBigIntValue(account.initialSequenceNumber),
+        status: "active",
+        totalUses: 0,
+      });
+    });
+  }
+
+  async removeAccount(publicKey: string): Promise<void> {
+    await this.mutex.runExclusive(async () => {
+      const index = this.accounts.findIndex((candidate) => candidate.publicKey === publicKey);
+      if (index === -1) {
+        throw new Error(`Unknown signer account: ${publicKey}`);
+      }
+
+      this.accounts.splice(index, 1);
+      this.accounts.forEach((account, accountIndex) => {
+        account.index = accountIndex;
+      });
+      if (this.accounts.length === 0) {
+        this.roundRobinCursor = 0;
+      } else {
+        this.roundRobinCursor %= this.accounts.length;
+      }
+    });
   }
 
   async acquire(): Promise<SignerLease> {
@@ -208,11 +263,53 @@ export class SignerPool {
       account.balance = nextBalance;
 
       if (this.lowBalanceThreshold !== null && nextBalance < this.lowBalanceThreshold) {
+        account.status = "low_balance";
         account.active = false;
         return;
       }
 
+      account.status = "active";
       account.active = true;
+    });
+  }
+
+  async updateSequenceNumber(
+    publicKey: string,
+    sequenceNumber: bigint | number | string | null,
+  ): Promise<void> {
+    await this.mutex.runExclusive(async () => {
+      const account = this.accounts.find((candidate) => candidate.publicKey === publicKey);
+      if (!account) {
+        throw new Error(`Unknown signer account: ${publicKey}`);
+      }
+
+      account.sequenceNumber = parseBigIntValue(sequenceNumber);
+      if (account.status === "sequence_error") {
+        if (
+          this.lowBalanceThreshold !== null &&
+          account.balance !== null &&
+          account.balance < this.lowBalanceThreshold
+        ) {
+          account.status = "low_balance";
+          account.active = false;
+          return;
+        }
+
+        account.status = "active";
+        account.active = true;
+      }
+    });
+  }
+
+  async markSequenceError(publicKey: string): Promise<void> {
+    await this.mutex.runExclusive(async () => {
+      const account = this.accounts.find((candidate) => candidate.publicKey === publicKey);
+      if (!account) {
+        throw new Error(`Unknown signer account: ${publicKey}`);
+      }
+
+      account.status = "sequence_error";
+      account.active = false;
     });
   }
 
@@ -223,6 +320,7 @@ export class SignerPool {
       inFlight: account.inFlight,
       publicKey: account.publicKey,
       sequenceNumber: account.sequenceNumber?.toString() ?? null,
+      status: account.status,
       totalUses: account.totalUses,
     }));
   }

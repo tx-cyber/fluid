@@ -1,7 +1,11 @@
-import { spawn, ChildProcess } from "child_process";
-import { once } from "events";
-import { setTimeout as delay } from "timers/promises";
+import { ChildProcess, spawn } from "child_process";
+import { createLogger, serializeError } from "../src/utils/logger";
+
 import StellarSdk from "@stellar/stellar-sdk";
+import { setTimeout as delay } from "timers/promises";
+import { once } from "events";
+
+const logger = createLogger({ component: "parity_check" });
 
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
@@ -10,7 +14,7 @@ interface HttpResult {
   status: number;
 }
 
-function startProcess(
+function startProcess (
   command: string,
   args: string[],
   cwd: string,
@@ -29,7 +33,7 @@ function startProcess(
   return child;
 }
 
-async function stopProcess(child: ChildProcess): Promise<void> {
+async function stopProcess (child: ChildProcess): Promise<void> {
   if (!child.pid || child.killed) {
     return;
   }
@@ -47,7 +51,7 @@ async function stopProcess(child: ChildProcess): Promise<void> {
   await once(child, "exit");
 }
 
-async function waitForHealth(url: string): Promise<void> {
+async function waitForHealth (url: string): Promise<void> {
   for (let attempt = 0; attempt < 60; attempt += 1) {
     try {
       const response = await fetch(`${url}/health`);
@@ -64,7 +68,7 @@ async function waitForHealth(url: string): Promise<void> {
   throw new Error(`Timed out waiting for ${url}/health`);
 }
 
-async function request(
+async function request (
   baseUrl: string,
   path: string,
   init?: RequestInit
@@ -85,7 +89,7 @@ async function request(
   }
 }
 
-function normalize(result: HttpResult): JsonValue {
+function normalize (result: HttpResult): JsonValue {
   if (typeof result.body === "string") {
     return {
       status: result.status,
@@ -153,7 +157,7 @@ function normalize(result: HttpResult): JsonValue {
   });
 }
 
-function sortJson(value: JsonValue): JsonValue {
+function sortJson (value: JsonValue): JsonValue {
   if (Array.isArray(value)) {
     return value.map(sortJson);
   }
@@ -169,7 +173,7 @@ function sortJson(value: JsonValue): JsonValue {
   return value;
 }
 
-async function buildSignedTransaction(): Promise<string> {
+async function buildSignedTransaction (): Promise<string> {
   const userKeypair = StellarSdk.Keypair.random();
   const sourceAccount = new StellarSdk.Account(userKeypair.publicKey(), "1");
   const tx = new StellarSdk.TransactionBuilder(sourceAccount, {
@@ -190,7 +194,7 @@ async function buildSignedTransaction(): Promise<string> {
   return tx.toXDR();
 }
 
-async function buildFeeBumpXdr(feePayerSecret: string): Promise<string> {
+async function buildFeeBumpXdr (feePayerSecret: string): Promise<string> {
   const userKeypair = StellarSdk.Keypair.random();
   const feePayer = StellarSdk.Keypair.fromSecret(feePayerSecret);
   const sourceAccount = new StellarSdk.Account(userKeypair.publicKey(), "1");
@@ -219,7 +223,7 @@ async function buildFeeBumpXdr(feePayerSecret: string): Promise<string> {
   return feeBump.toXDR();
 }
 
-async function main(): Promise<void> {
+async function main (): Promise<void> {
   const serverDir = process.cwd();
   const repoDir = `${serverDir}\\..`;
   const rustDir = `${repoDir}\\fluid-server`;
@@ -374,14 +378,19 @@ async function main(): Promise<void> {
       const normalizedRust = normalize(rustResult);
 
       if (JSON.stringify(normalizedNode) !== JSON.stringify(normalizedRust)) {
-        console.error(`PARITY_FAIL ${name}`);
-        console.error("node:", JSON.stringify(normalizedNode, null, 2));
-        console.error("rust:", JSON.stringify(normalizedRust, null, 2));
+        logger.error(
+          {
+            case_name: name,
+            node_result: normalizedNode,
+            rust_result: normalizedRust,
+          },
+          "PARITY_FAIL"
+        );
         process.exitCode = 1;
         return;
       }
 
-      console.log(`PARITY_OK ${name}`);
+      logger.info({ case_name: name }, "PARITY_OK");
     }
 
     const dashboard = await request(`http://127.0.0.1:${rustPort}`, "/");
@@ -389,13 +398,13 @@ async function main(): Promise<void> {
       throw new Error("Rust dashboard route failed");
     }
 
-    console.log("PARITY_OK rust-dashboard");
+    logger.info({ case_name: "rust-dashboard" }, "PARITY_OK");
   } finally {
     await Promise.allSettled([stopProcess(nodeProcess), stopProcess(rustProcess)]);
   }
 }
 
 main().catch((error) => {
-  console.error(error);
+  logger.error({ ...serializeError(error) }, "Parity check failed");
   process.exitCode = 1;
 });

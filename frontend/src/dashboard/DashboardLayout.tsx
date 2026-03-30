@@ -14,6 +14,7 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
   { label: "Overview", href: "/overview" },
   { label: "Transactions", href: "/transactions" },
   { label: "API Keys", href: "/api-keys" },
+  { label: "API Playground", href: "/playground" },
   { label: "Settings", href: "/settings" },
 ];
 

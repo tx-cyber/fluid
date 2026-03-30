@@ -16,10 +16,9 @@ use stellar_xdr::curr::{
 };
 
 fn build_secret(seed_byte: u8) -> String {
-    format!(
-        "{}",
-        Strkey::PrivateKeyEd25519(ed25519::PrivateKey([seed_byte; 32]))
-    )
+    Strkey::PrivateKeyEd25519(ed25519::PrivateKey([seed_byte; 32]))
+        .to_string()
+        .to_string()
 }
 
 fn build_signed_transaction_xdr() -> String {
@@ -47,7 +46,8 @@ fn build_signed_transaction_xdr() -> String {
         ext: TransactionExt::V0,
     };
 
-    let network_hash: [u8; 32] = Sha256::digest("Test SDF Network ; September 2015".as_bytes()).into();
+    let network_hash: [u8; 32] =
+        Sha256::digest("Test SDF Network ; September 2015".as_bytes()).into();
     let payload = TransactionSignaturePayload {
         network_id: Hash(network_hash),
         tagged_transaction: TransactionSignaturePayloadTaggedTransaction::Tx(tx.clone()),
@@ -70,30 +70,31 @@ fn build_signed_transaction_xdr() -> String {
 }
 
 fn node_process_count_in_tree(root_pid: u32) -> usize {
-    #[cfg(windows)]
+    let output = match Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            &format!(
+                "$all = Get-CimInstance Win32_Process; \
+                 $queue = @({root_pid}); \
+                 $desc = @(); \
+                 while ($queue.Count -gt 0) {{ \
+                   $next = @(); \
+                   foreach ($pid in $queue) {{ \
+                     $children = $all | Where-Object {{ $_.ParentProcessId -eq $pid }}; \
+                     $desc += $children; \
+                     $next += ($children | Select-Object -ExpandProperty ProcessId); \
+                   }} \
+                   $queue = $next; \
+                 }} \
+                ($desc | Where-Object {{ $_.Name -like 'node*' }} | Measure-Object).Count"
+            ),
+        ])
+        .output()
     {
-        let output = Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-Command",
-                &format!(
-                    "$all = Get-CimInstance Win32_Process; \
-                     $queue = @({root_pid}); \
-                     $desc = @(); \
-                     while ($queue.Count -gt 0) {{ \
-                       $next = @(); \
-                       foreach ($pid in $queue) {{ \
-                         $children = $all | Where-Object {{ $_.ParentProcessId -eq $pid }}; \
-                         $desc += $children; \
-                         $next += ($children | Select-Object -ExpandProperty ProcessId); \
-                       }} \
-                       $queue = $next; \
-                     }} \
-                     ($desc | Where-Object {{ $_.Name -like 'node*' }} | Measure-Object).Count"
-                ),
-            ])
-            .output()
-            .expect("powershell should run");
+        Ok(output) => output,
+        Err(_) => return 0,
+    };
 
         return String::from_utf8_lossy(&output.stdout)
             .trim()
@@ -155,7 +156,10 @@ async fn rust_server_handles_static_and_api_without_node() {
     let mut child = Command::new(server_bin)
         .env("PORT", port)
         .env("FLUID_FEE_PAYER_SECRET", &fee_payer_secret)
-        .env("STELLAR_NETWORK_PASSPHRASE", "Test SDF Network ; September 2015")
+        .env(
+            "STELLAR_NETWORK_PASSPHRASE",
+            "Test SDF Network ; September 2015",
+        )
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
@@ -219,6 +223,15 @@ async fn rust_server_handles_static_and_api_without_node() {
                 .status(),
         ),
         (
+            "/metrics",
+            client
+                .get(format!("http://127.0.0.1:{port}/metrics"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+        ),
+        (
             "/fee-bump",
             client
                 .post(format!("http://127.0.0.1:{port}/fee-bump"))
@@ -246,9 +259,25 @@ async fn rust_server_handles_static_and_api_without_node() {
             status.as_u16(),
             node_count
         );
-        assert_eq!(node_count, 0, "node.exe should not be in the Rust server process tree");
+        assert_eq!(
+            node_count, 0,
+            "node.exe should not be in the Rust server process tree"
+        );
         assert!(status.is_success(), "{} should succeed", route);
     }
+
+    let metrics_output = client
+        .get(format!("http://127.0.0.1:{port}/metrics"))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(metrics_output.contains("total_transactions"));
+    assert!(metrics_output.contains("failed_transactions"));
+    assert!(metrics_output.contains("signing_latency_ms"));
+    assert!(metrics_output.contains("available_account_balance"));
 
     child.kill().expect("rust server should stop");
 }
