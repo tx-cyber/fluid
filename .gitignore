@@ -21,6 +21,11 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# Local tooling caches
+.npm-cache/
+.npm-tmp/
+.tmp/
+
 # OS files
 .DS_Store
 Thumbs.db

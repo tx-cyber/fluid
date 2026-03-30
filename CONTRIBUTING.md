@@ -95,3 +95,33 @@ feat: implement secure admin authentication with nextauth.js (#63)
 - Follow existing project structure
 
 Thank you for contributing to Fluid! 🚀
+
+## Changesets (Versioning & Changelogs)
+
+This monorepo uses **Changesets** to manage **independent package versions** and per-package **CHANGELOG.md** entries.
+
+### When to add a changeset
+
+Add a changeset in the same PR whenever you make a user-visible change to any package (client, server, dashboards, etc.).
+
+### How to add a changeset
+
+From the repo root:
+
+```bash
+npm run changeset
+```
+
+Then:
+
+- Select the packages your change affects
+- Choose the bump type (patch/minor/major)
+- Write a short, clear summary of the change
+
+### CI / Release flow
+
+On merge to `main`, the release workflow will:
+
+- Open/maintain a “Version Packages” PR when changesets exist
+- Bump package versions and update changelogs
+- Publish packages (requires `NPM_TOKEN` configured in repo secrets)
