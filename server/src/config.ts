@@ -96,6 +96,7 @@ export interface Config {
   ipAllowlist: string[];
   ipDenylist: string[];
   grpcEngine?: GrpcEngineConfig;
+  crossChainSettlementTimeoutMinutes: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -344,6 +345,10 @@ export function loadConfig(): Config {
     ipAllowlist,
     ipDenylist,
     grpcEngine,
+    crossChainSettlementTimeoutMinutes: parsePositiveInt(
+      process.env.CROSS_CHAIN_SETTLEMENT_TIMEOUT_MINUTES,
+      10,
+    ),
   };
 
   // ---- Vault mode ----------------------------------------------------------
