@@ -14,6 +14,11 @@ import { screenAddresses, logScreeningResult } from "../services/ofacScreening";
 import { extractAddresses } from "../utils/stellarAddressExtractor";
 import { evaluateSARRules } from "../services/sarService";
 import { signTransaction, signTransactionWithVault } from "../signing";
+import {
+  extractSettlementRequirement,
+  verifySettlementPayment,
+} from "../utils/settlementVerifier";
+import { analyzeSettlementTransaction } from "../utils/settlementTransactionAnalyzer";
 
 export interface StellarSponsorParams {
   xdr: string;
@@ -21,6 +26,7 @@ export interface StellarSponsorParams {
   config: Config;
   tenant: Tenant;
   feePayerAccount: FeePayerAccount;
+  token?: string;
 }
 
 export class StellarFeeSponsor implements FeeSponsor {
@@ -90,6 +96,41 @@ export class StellarFeeSponsor implements FeeSponsor {
     }
 
     const feeAmount = await this.estimateFee(params);
+    const settlementRequirement = extractSettlementRequirement(
+      params.token,
+      Number(feeAmount),
+    );
+
+    if (settlementRequirement) {
+      const settlementVerification = verifySettlementPayment(
+        innerTransaction,
+        settlementRequirement,
+        config,
+      );
+
+      if (!settlementVerification.isValid) {
+        throw new AppError(
+          settlementVerification.reason ?? "Invalid fee settlement payment",
+          400,
+          "SETTLEMENT_VERIFICATION_FAILED",
+        );
+      }
+
+      const settlementAnalysis = analyzeSettlementTransaction(
+        innerTransaction,
+        settlementRequirement,
+        config,
+      );
+
+      if (!settlementAnalysis.isAllowed) {
+        throw new AppError(
+          settlementAnalysis.findings.join("; "),
+          400,
+          "SETTLEMENT_VERIFICATION_FAILED",
+        );
+      }
+    }
+
     const category = classifyTransactionCategory(
       innerTransaction.operations as Array<{ type?: string }>
     );
