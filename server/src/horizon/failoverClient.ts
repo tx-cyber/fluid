@@ -224,6 +224,46 @@ export class HorizonFailoverClient {
     throw lastError;
   }
 
+  async loadAccount(publicKey: string): Promise<any> {
+    const orderedNodes = this.getOrderedNodes();
+    let lastError: unknown;
+
+    for (const node of orderedNodes) {
+      try {
+        const result = await node.server.loadAccount(publicKey);
+        this.markNodeActive(node);
+        return result;
+      } catch (error: any) {
+        lastError = error;
+        const statusCode = getStatusCode(error);
+
+        if (statusCode === 404) {
+          throw error;
+        }
+
+        const disposition = classifySubmissionError(error);
+
+        if (disposition === "retryable") {
+          this.markNodeInactive(node, error);
+          logger.warn(
+            {
+              ...serializeError(error),
+              disposition,
+              node_url: node.status.url,
+              public_key: publicKey,
+            },
+            "Account lookup failed on Horizon node"
+          );
+          continue;
+        }
+
+        throw error;
+      }
+    }
+
+    throw lastError;
+  }
+
   private getOrderedNodes (): HorizonNodeRuntimeState[] {
     if (this.strategy === "round_robin") {
       const start = this.roundRobinIndex % this.nodes.length;

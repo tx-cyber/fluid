@@ -34,9 +34,8 @@ export interface GrpcEngineConfig {
 }
 
 export interface SupportedAsset {
-  code: string;
-  issuer?: string;
   minBalance?: string;
+  treasuryRetentionLimit?: string;
 }
 
 export interface AlertEmailConfig {
@@ -109,6 +108,14 @@ export interface Config {
   supportedAssets?: SupportedAsset[];
   vault?: VaultConfig;
   evmSettlement?: EvmSettlementConfig;
+  treasury: TreasuryConfig;
+}
+
+export interface TreasuryConfig {
+  coldWallet: string;
+  retentionLimitXlm: number;
+  cronSchedule: string;
+  enabled: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -162,6 +169,7 @@ function parseSupportedAssets(value: string | undefined): SupportedAsset[] {
       code: parts[0],
       issuer: parts[1] || undefined,
       minBalance: parts[2] || undefined,
+      treasuryRetentionLimit: parts[3] || undefined,
     };
   });
 }
@@ -322,6 +330,18 @@ function loadEvmSettlementConfig(): EvmSettlementConfig | undefined {
   };
 }
 
+function loadTreasuryConfig(): TreasuryConfig {
+  return {
+    coldWallet: process.env.TREASURY_COLD_WALLET?.trim() || "",
+    retentionLimitXlm: parsePositiveInt(
+      process.env.TREASURY_RETENTION_LIMIT_XLM,
+      1000,
+    ),
+    cronSchedule: process.env.TREASURY_SWEEP_CRON_SCHEDULE?.trim() || "0 0 * * *",
+    enabled: process.env.TREASURY_SWEEP_ENABLED !== "false",
+  };
+}
+
 export function loadConfig(): Config {
   const baseFee = parsePositiveInt(process.env.FLUID_BASE_FEE, 100);
   const feeMultiplier = Number.parseFloat(
@@ -398,6 +418,7 @@ export function loadConfig(): Config {
       process.env.CROSS_CHAIN_SETTLEMENT_TIMEOUT_MINUTES,
       10,
     ),
+    treasury: loadTreasuryConfig(),
   };
 
   // ---- Vault mode ----------------------------------------------------------

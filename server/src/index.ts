@@ -129,6 +129,7 @@ import { estimateFeeHandler } from "./handlers/estimate";
 import { initializeDigestWorker } from "./workers/digestWorker";
 
 import { initializeTreasuryRefill } from "./workers/treasuryRefill";
+import { initializeTreasurySweeper } from "./tasks/sweeper";
 
 const logger = createLogger({ component: "server" });
 const config = loadConfig();
@@ -664,9 +665,8 @@ const PORT = process.env.PORT || 3000;
 let ledgerMonitor: ReturnType<typeof initializeLedgerMonitor> | null = null;
 let balanceMonitor: ReturnType<typeof initializeBalanceMonitor> | null = null;
 let incidentMonitor: ReturnType<typeof initializeIncidentMonitor> | null = null;
-let digestWorker: ReturnType<typeof initializeDigestWorker> | null = null;
-let tenantErasureWorker: ReturnType<typeof initializeTenantErasureWorker> | null = null;
 let bridgeMonitor: ReturnType<typeof initializeBridgeMonitor> | null = null;
+let treasurySweeper: ReturnType<typeof initializeTreasurySweeper> | null = null;
 let shuttingDown = false;
 let server: ReturnType<typeof app.listen> | null = null;
 
@@ -692,6 +692,7 @@ async function shutdown(signal: string): Promise<void> {
   stopOFACScreening();
   crossChainSyncService.stop();
   bridgeMonitor?.stop();
+  treasurySweeper?.stop();
 
   if (server) {
     server.close(() => process.exit(0));
@@ -864,8 +865,19 @@ try {
     "Failed to start bridge monitor",
   );
 }
+  // Treasury automated sweeper (Cold storage)
+  try {
+    treasurySweeper = initializeTreasurySweeper(config);
+    treasurySweeper.start();
+    logger.info("Treasury sweeper worker started");
+  } catch (error) {
+    logger.error(
+      { ...serializeError(error) },
+      "Failed to start treasury sweeper worker",
+    );
+  }
 
-server = app.listen(PORT, () => {
+  server = app.listen(PORT, () => {
   logger.info(
     {
       fee_payers_loaded: config.feePayerAccounts.length,
