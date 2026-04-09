@@ -39,15 +39,15 @@ export default async function AdminDashboard() {
     apiKeys.find((k) => k.active)?.key ?? "your-api-key-here";
 
   return (
-    <div className="min-h-screen bg-slate-100">
-      <div className="border-b border-slate-200 bg-white/90 backdrop-blur">
+    <div className="min-h-screen bg-background">
+      <div className="border-b border-border/50 glass  sticky top-0 z-20">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col gap-4 py-6 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.25em] text-sky-600">
+              <p className="text-[10px] font-black uppercase tracking-[0.3em] text-primary">
                 Fluid Admin
               </p>
-              <h1 className="mt-2 text-3xl font-bold text-slate-900">
+              <h1 className="mt-2 text-4xl font-black tracking-tighter text-foreground">
                 Node Operations Dashboard
               </h1>
               <p className="mt-2 max-w-2xl text-sm text-slate-600">
@@ -56,11 +56,9 @@ export default async function AdminDashboard() {
               </p>
             </div>
             <div className="flex items-center gap-4">
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                <div className="font-medium text-slate-900">
-                  {session?.user?.email}
-                </div>
-                <div>
+              <div className="rounded-2xl border border-border/50 glass  px-5 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wider shadow-inner">
+                <div className="text-foreground">{session?.user?.email}</div>
+                <div className="mt-0.5 opacity-60">
                   {source === "live"
                     ? "Live server data"
                     : "Sample dashboard data"}
@@ -136,38 +134,32 @@ export default async function AdminDashboard() {
         <section className="mt-6 space-y-6">
           <div className="flex flex-wrap justify-end gap-3">
             <Link
-              href="/admin/partners"
-              className="inline-flex min-h-10 items-center justify-center rounded-full border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
-            >
-              Partner certification
-            </Link>
-            <Link
               href="/admin/webhooks"
-              className="inline-flex min-h-10 items-center justify-center rounded-full border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+              className="inline-flex min-h-11 items-center justify-center rounded-full border border-border/50 glass  px-6 text-sm font-black text-foreground transition hover:shadow-lg hover:-translate-y-0.5"
             >
               Webhook settings
             </Link>
             <Link
               href="/admin/sandbox"
-              className="inline-flex min-h-10 items-center justify-center rounded-full border border-amber-300 bg-amber-50 px-4 text-sm font-semibold text-amber-700 transition hover:border-amber-400 hover:bg-amber-100"
+              className="inline-flex min-h-11 items-center justify-center rounded-full border border-amber-500/30 glass px-6 text-sm font-black text-amber-500 transition hover:shadow-lg hover:-translate-y-0.5"
             >
               Sandbox
             </Link>
             <Link
               href="/admin/chains"
-              className="inline-flex min-h-10 items-center justify-center rounded-full border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+              className="inline-flex min-h-11 items-center justify-center rounded-full border border-border/50 glass  px-6 text-sm font-black text-foreground transition hover:shadow-lg hover:-translate-y-0.5"
             >
               Chain registry
             </Link>
             <Link
               href="/admin/signers"
-              className="inline-flex min-h-10 items-center justify-center rounded-full border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+              className="inline-flex min-h-11 items-center justify-center rounded-full border border-border/50 glass  px-6 text-sm font-black text-foreground transition hover:shadow-lg hover:-translate-y-0.5"
             >
               Manage signer pool
             </Link>
             <Link
               href="/admin/transactions"
-              className="inline-flex min-h-10 items-center justify-center rounded-full bg-slate-900 px-4 text-sm font-semibold text-white transition hover:bg-slate-700"
+              className="inline-flex min-h-11 items-center justify-center rounded-full bg-foreground px-8 text-sm font-black text-background transition hover:shadow-xl hover:-translate-y-0.5"
             >
               Open transaction history
             </Link>

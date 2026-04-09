@@ -96,6 +96,8 @@ pub enum SigningError {
     InvalidEnvelope(String),
     UnsupportedEnvelope(String),
     SignatureOverflow,
+    AccountBlocked(String),
+    SuspiciousActivity(String),
 }
 
 impl fmt::Display for SigningError {
@@ -108,11 +110,25 @@ impl fmt::Display for SigningError {
                 f,
                 "transaction already contains the maximum of 20 signatures"
             ),
+            Self::AccountBlocked(message) => write!(f, "account is blocked: {message}"),
+            Self::SuspiciousActivity(message) => write!(f, "suspicious activity detected: {message}"),
         }
     }
 }
 
 impl std::error::Error for SigningError {}
+
+impl From<&str> for SigningError {
+    fn from(s: &str) -> Self {
+        Self::AccountBlocked(s.to_string())
+    }
+}
+
+impl From<String> for SigningError {
+    fn from(s: String) -> Self {
+        Self::AccountBlocked(s)
+    }
+}
 
 #[wasm_bindgen(js_name = signTransactionXdr)]
 pub fn sign_transaction_xdr(

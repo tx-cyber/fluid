@@ -70,36 +70,38 @@ fn build_signed_transaction_xdr() -> String {
 }
 
 fn node_process_count_in_tree(root_pid: u32) -> usize {
-    let output = match Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-Command",
-            &format!(
-                "$all = Get-CimInstance Win32_Process; \
-                 $queue = @({root_pid}); \
-                 $desc = @(); \
-                 while ($queue.Count -gt 0) {{ \
-                   $next = @(); \
-                   foreach ($pid in $queue) {{ \
-                     $children = $all | Where-Object {{ $_.ParentProcessId -eq $pid }}; \
-                     $desc += $children; \
-                     $next += ($children | Select-Object -ExpandProperty ProcessId); \
-                   }} \
-                   $queue = $next; \
-                 }} \
-                ($desc | Where-Object {{ $_.Name -like 'node*' }} | Measure-Object).Count"
-            ),
-        ])
-        .output()
+    #[cfg(windows)]
     {
-        Ok(output) => output,
-        Err(_) => return 0,
-    };
+        let output = match Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                &format!(
+                    "$all = Get-CimInstance Win32_Process; \
+                     $queue = @({root_pid}); \
+                     $desc = @(); \
+                     while ($queue.Count -gt 0) {{ \
+                       $next = @(); \
+                       foreach ($pid in $queue) {{ \
+                         $children = $all | Where-Object {{ $_.ParentProcessId -eq $pid }}; \
+                         $desc += $children; \
+                         $next += ($children | Select-Object -ExpandProperty ProcessId); \
+                       }} \
+                       $queue = $next; \
+                     }} \
+                    ($desc | Where-Object {{ $_.Name -like 'node*' }} | Measure-Object).Count"
+                ),
+            ])
+            .output()
+        {
+            Ok(output) => output,
+            Err(_) => return 0,
+        };
 
-        return String::from_utf8_lossy(&output.stdout)
+        String::from_utf8_lossy(&output.stdout)
             .trim()
             .parse()
-            .unwrap_or(0);
+            .unwrap_or(0)
     }
 
     #[cfg(not(windows))]

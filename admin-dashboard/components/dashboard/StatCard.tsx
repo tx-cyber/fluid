@@ -9,16 +9,18 @@ interface StatCardProps {
 
 export function StatCard({ title, value, delta, icon: Icon }: StatCardProps) {
   return (
-    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div className="rounded-3xl border border-border/50 glass p-6 shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-1">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-sm font-medium text-slate-500">{title}</p>
-          <p className="mt-2 text-3xl font-bold text-slate-900">{value}</p>
+          <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{title}</p>
+          <p className="mt-2 text-3xl font-black tracking-tight text-foreground">{value}</p>
           {delta && (
-            <p className="mt-1 text-sm text-slate-600">{delta}</p>
+            <p className="mt-1 text-xs font-medium text-primary">{delta}</p>
           )}
         </div>
-        <Icon className="h-8 w-8 text-slate-400" />
+        <div className="rounded-2xl bg-primary/10 p-3">
+          <Icon className="h-6 w-6 text-primary" />
+        </div>
       </div>
     </div>
   );

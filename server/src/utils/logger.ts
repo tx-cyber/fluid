@@ -18,7 +18,7 @@ const prettyLoggingEnabled =
 
 const loggerOptions: LoggerOptions = {
     level: defaultLevel,
-    timestamp: pino.stdTimeFunctions.isoTime,
+    timestamp: () => `,"timestamp":"${new Date().toISOString()}"`,
     base: {
         service: "fluid-server",
         env: process.env.NODE_ENV ?? "development",

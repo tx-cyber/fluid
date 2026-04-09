@@ -38,7 +38,7 @@ function TreasuryCard({ chain }: { chain: ChainTreasuryBalance }) {
   const cfg = CHAIN_CONFIG[chain.chain];
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="rounded-xl border border-border/50 glass  p-5 shadow-sm transition-all duration-300 hover:shadow-lg hover:-translate-y-1">
       <div className="mb-3 flex items-center gap-2">
         <div className="h-3 w-3 rounded-full" style={{ backgroundColor: cfg.color }} />
         <span className="text-sm font-semibold text-slate-900">{cfg.label}</span>
@@ -97,7 +97,7 @@ function TreasuryChart({ data }: { data: MultiChainData }) {
   });
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+    <div className="rounded-xl border border-border/50 glass  p-6 shadow-sm">
       <div className="mb-4">
         <p className="text-xs font-semibold uppercase tracking-[0.25em] text-sky-600">
           Treasury
@@ -151,7 +151,7 @@ export function MultiChainDashboard({ data }: { data: MultiChainData }) {
 
   return (
     <div className="space-y-4">
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <div className="rounded-2xl border border-border/50 glass  p-6 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-sky-600">
@@ -162,11 +162,11 @@ export function MultiChainDashboard({ data }: { data: MultiChainData }) {
               Combined USD-equivalent balance across supported signing accounts
             </p>
           </div>
-          <div className="rounded-2xl bg-slate-900 px-5 py-4 text-white">
-            <p className="text-xs uppercase tracking-[0.2em] text-slate-300">Total USD Value</p>
-            <p className="mt-1 text-3xl font-bold">{formatUsd(data.totalUsdValue)}</p>
-            <p className="mt-1 text-xs text-slate-300">
-              {healthyChains}/{data.chains.length} chains fetched successfully
+          <div className="rounded-2xl bg-foreground px-6 py-5 text-background shadow-lg ring-1 ring-white/10">
+            <p className="text-[10px] font-black uppercase tracking-[0.3em] opacity-70">Total USD Value</p>
+            <p className="mt-1 text-4xl font-black tracking-tight">{formatUsd(data.totalUsdValue)}</p>
+            <p className="mt-2 text-[11px] font-medium opacity-60">
+              {healthyChains}/{data.chains.length} chains active
             </p>
           </div>
         </div>

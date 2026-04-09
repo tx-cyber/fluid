@@ -127,13 +127,13 @@ export function NotificationBell() {
         <button
           id="notification-bell"
           aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ""}`}
-          className="relative flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-zinc-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 dark:hover:bg-zinc-800"
+          className="relative flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-zinc-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 "
         >
           <Bell className="h-5 w-5" />
           {unreadCount > 0 && (
             <span
               aria-hidden
-              className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-0.5 text-[10px] font-bold leading-none text-white ring-2 ring-white dark:ring-background"
+              className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-0.5 text-[10px] font-bold leading-none text-white ring-2 ring-white "
             >
               {unreadCount > 99 ? "99+" : unreadCount}
             </span>
@@ -147,20 +147,20 @@ export function NotificationBell() {
           id="notification-dropdown"
           sideOffset={8}
           align="end"
-          className="z-50 w-[360px] max-w-[calc(100vw-2rem)] rounded-2xl border border-zinc-200/80 bg-white shadow-xl shadow-zinc-900/10 outline-none dark:border-zinc-700/80 dark:bg-zinc-900 dark:shadow-zinc-950/30"
+          className="z-50 w-[360px] max-w-[calc(100vw-2rem)] rounded-2xl border border-zinc-200/80 bg-white shadow-xl shadow-zinc-900/10 outline-none   "
           style={{
             animation: "notif-in 150ms cubic-bezier(0.16,1,0.3,1)",
           }}
         >
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3 dark:border-zinc-800">
+          <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3 ">
             <div className="flex items-center gap-2">
               <Bell className="h-4 w-4 text-zinc-500" />
-              <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+              <span className="text-sm font-semibold text-zinc-900 ">
                 Notifications
               </span>
               {unreadCount > 0 && (
-                <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-600 dark:bg-red-950 dark:text-red-400">
+                <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-600  ">
                   {unreadCount} new
                 </span>
               )}
@@ -170,7 +170,7 @@ export function NotificationBell() {
                 <button
                   id="notification-mark-all-read"
                   onClick={markAllRead}
-                  className="flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+                  className="flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700  "
                   title="Mark all as read"
                 >
                   <CheckCheck className="h-3.5 w-3.5" />
@@ -178,7 +178,7 @@ export function NotificationBell() {
                 </button>
               )}
               <Popover.Close
-                className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800"
+                className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 "
                 aria-label="Close notifications"
               >
                 <X className="h-4 w-4" />
@@ -195,33 +195,33 @@ export function NotificationBell() {
               <div className="flex flex-col gap-3 p-4">
                 {[1, 2, 3].map((i) => (
                   <div key={i} className="flex gap-3 animate-pulse">
-                    <div className="h-4 w-4 shrink-0 rounded-full bg-zinc-200 dark:bg-zinc-800" />
+                    <div className="h-4 w-4 shrink-0 rounded-full bg-zinc-200 " />
                     <div className="flex-1 space-y-1.5">
-                      <div className="h-3 w-3/4 rounded bg-zinc-200 dark:bg-zinc-800" />
-                      <div className="h-2.5 w-full rounded bg-zinc-100 dark:bg-zinc-800/60" />
+                      <div className="h-3 w-3/4 rounded bg-zinc-200 " />
+                      <div className="h-2.5 w-full rounded bg-zinc-100 " />
                     </div>
                   </div>
                 ))}
               </div>
             ) : notifications.length === 0 ? (
               <div className="flex flex-col items-center gap-2 py-10 text-center">
-                <Bell className="h-8 w-8 text-zinc-300 dark:text-zinc-700" />
-                <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
+                <Bell className="h-8 w-8 text-zinc-300 " />
+                <p className="text-sm font-medium text-zinc-500 ">
                   No notifications yet
                 </p>
-                <p className="text-xs text-zinc-400 dark:text-zinc-600">
+                <p className="text-xs text-zinc-400 ">
                   Alerts from your Fluid server will appear here.
                 </p>
               </div>
             ) : (
-              <ul role="list" className="divide-y divide-zinc-100 dark:divide-zinc-800">
+              <ul role="list" className="divide-y divide-zinc-100 ">
                 {notifications.map((notif) => (
                   <li key={notif.id}>
                     <button
                       id={`notification-item-${notif.id}`}
-                      className={`group w-full px-4 py-3 text-left transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50 ${
+                      className={`group w-full px-4 py-3 text-left transition-colors hover:bg-zinc-50  ${
                         !notif.read
-                          ? "bg-sky-50/60 dark:bg-sky-950/20"
+                          ? "bg-sky-50/60 "
                           : ""
                       }`}
                       onClick={() => {
@@ -235,8 +235,8 @@ export function NotificationBell() {
                             <p
                               className={`truncate text-sm font-medium leading-tight ${
                                 notif.read
-                                  ? "text-zinc-600 dark:text-zinc-400"
-                                  : "text-zinc-900 dark:text-zinc-100"
+                                  ? "text-zinc-600 "
+                                  : "text-zinc-900 "
                               }`}
                             >
                               {notif.title}
@@ -253,7 +253,7 @@ export function NotificationBell() {
                               )}
                             </div>
                           </div>
-                          <p className="mt-0.5 line-clamp-2 text-xs leading-relaxed text-zinc-500 dark:text-zinc-500">
+                          <p className="mt-0.5 line-clamp-2 text-xs leading-relaxed text-zinc-500 ">
                             {notif.message}
                           </p>
                         </div>
@@ -267,7 +267,7 @@ export function NotificationBell() {
 
           {/* Footer */}
           {notifications.length > 0 && (
-            <div className="border-t border-zinc-100 px-4 py-2.5 dark:border-zinc-800">
+            <div className="border-t border-zinc-100 px-4 py-2.5 ">
               <p className="text-center text-xs text-zinc-400">
                 Showing last {notifications.length} notification
                 {notifications.length !== 1 ? "s" : ""} · Real-time via SSE

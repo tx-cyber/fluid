@@ -195,21 +195,21 @@ export function SARTable({ data }: SARTableProps) {
     <div className="space-y-6">
       {/* Stats bar */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
-          <p className="text-xs text-slate-500">Pending Review</p>
-          <p className="mt-1 text-2xl font-bold text-amber-600">{data.stats.summary.pending}</p>
+        <div className="rounded-xl border border-border/50 glass px-5 py-4 shadow-sm transition-all duration-300 hover:shadow-lg hover:-translate-y-1">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-70">Pending Review</p>
+          <p className="mt-1 text-3xl font-black text-amber-500 tracking-tight">{data.stats.summary.pending}</p>
         </div>
-        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
-          <p className="text-xs text-slate-500">Confirmed Suspicious</p>
-          <p className="mt-1 text-2xl font-bold text-rose-600">{data.stats.summary.confirmed}</p>
+        <div className="rounded-xl border border-border/50 glass px-5 py-4 shadow-sm transition-all duration-300 hover:shadow-lg hover:-translate-y-1">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-70">Confirmed Suspicious</p>
+          <p className="mt-1 text-3xl font-black text-rose-500 tracking-tight">{data.stats.summary.confirmed}</p>
         </div>
-        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
-          <p className="text-xs text-slate-500">Last 24 Hours</p>
-          <p className="mt-1 text-2xl font-bold text-slate-800">{data.stats.summary.last24Hours}</p>
+        <div className="rounded-xl border border-border/50 glass px-5 py-4 shadow-sm transition-all duration-300 hover:shadow-lg hover:-translate-y-1">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-70">Last 24 Hours</p>
+          <p className="mt-1 text-3xl font-black text-foreground tracking-tight">{data.stats.summary.last24Hours}</p>
         </div>
-        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
-          <p className="text-xs text-slate-500">Last 7 Days</p>
-          <p className="mt-1 text-2xl font-bold text-slate-800">{data.stats.summary.last7Days}</p>
+        <div className="rounded-xl border border-border/50 glass px-5 py-4 shadow-sm transition-all duration-300 hover:shadow-lg hover:-translate-y-1">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-70">Last 7 Days</p>
+          <p className="mt-1 text-3xl font-black text-foreground tracking-tight">{data.stats.summary.last7Days}</p>
         </div>
       </div>
 
@@ -244,7 +244,7 @@ export function SARTable({ data }: SARTableProps) {
       </div>
 
       {/* Table */}
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+      <div className="overflow-hidden rounded-3xl border border-border/50 glass shadow-sm">
         {filtered.length === 0 ? (
           <div className="px-6 py-12 text-center text-sm text-slate-500">
             No SAR reports match the current filter.

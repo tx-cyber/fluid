@@ -33,12 +33,12 @@ export function StatusBadge({
 }) {
   const toneClassName = {
     green:
-      "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-400 dark:ring-emerald-800",
+      "bg-emerald-50 text-emerald-700 ring-emerald-200   ",
     amber:
-      "bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/50 dark:text-amber-400 dark:ring-amber-800",
+      "bg-amber-50 text-amber-700 ring-amber-200   ",
     slate:
-      "bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700",
-    red: "bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-950/50 dark:text-rose-400 dark:ring-rose-800",
+      "bg-slate-100 text-slate-700 ring-slate-200   ",
+    red: "bg-rose-50 text-rose-700 ring-rose-200   ",
   }[getTone(status)];
 
   const isPending = isPendingStatus(status);

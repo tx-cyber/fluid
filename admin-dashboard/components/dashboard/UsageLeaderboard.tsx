@@ -41,25 +41,25 @@ export function UsageLeaderboard({
   const maxTx = sorted[0]?.txCount ?? 1;
 
   return (
-    <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+    <div className="overflow-hidden rounded-3xl border border-border/50 glass  shadow-sm">
       {/* Header */}
-      <div className="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 border-b border-border/50 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-slate-900">
+          <h2 className="text-xl font-black tracking-tight text-foreground">
             Tenant Usage Ranking
           </h2>
-          <p className="mt-1 text-sm text-slate-500">
-            Top tenants by XLM spent and transaction volume.
+          <p className="mt-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            Top performers by sponsorship volume
           </p>
         </div>
-        <div className="flex items-center gap-3 text-xs text-slate-500">
+        <div className="flex items-center gap-4 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
           <span className="flex items-center gap-1.5">
-            <span className="inline-block h-2.5 w-2.5 rounded-full bg-sky-500" />
-            XLM cost
+            <span className="inline-block h-2 w-2 rounded-full bg-primary" />
+            XLM spend
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="inline-block h-2.5 w-2.5 rounded-full bg-slate-300" />
-            Tx count
+            <span className="inline-block h-2 w-2 rounded-full bg-muted shadow-inner" />
+            Tx volume
           </span>
         </div>
       </div>

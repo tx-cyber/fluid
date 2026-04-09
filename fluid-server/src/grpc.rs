@@ -59,6 +59,8 @@ fn map_signing_error(error: SigningError) -> Status {
         SigningError::InvalidEnvelope(message) => Status::invalid_argument(message),
         SigningError::UnsupportedEnvelope(message) => Status::failed_precondition(message),
         SigningError::SignatureOverflow => Status::resource_exhausted(error.to_string()),
+        SigningError::AccountBlocked(message) => Status::permission_denied(message),
+        SigningError::SuspiciousActivity(message) => Status::permission_denied(message),
     }
 }
 

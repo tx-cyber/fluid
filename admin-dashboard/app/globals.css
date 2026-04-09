@@ -8,7 +8,7 @@
  * a Tailwind utility class (bg-primary, text-muted-foreground, etc.) so that
  * shadcn/ui components work correctly with Tailwind CSS v4.
  *
- * Dark-mode is class-based (.dark on <html>).
+ * Dark-mode has been removed; exclusively light theme.
  * ─────────────────────────────────────────────────────────────────────────── */
 
 :root {
@@ -54,35 +54,6 @@
   --font-mono: var(--font-geist-mono);
 }
 
-.dark {
-  --background: 224 71% 4%;
-  --foreground: 213 31% 91%;
-
-  --card: 224 71% 7%;
-  --card-foreground: 213 31% 91%;
-
-  --popover: 224 71% 7%;
-  --popover-foreground: 213 31% 91%;
-
-  --primary: 213 94% 68%;
-  --primary-foreground: 224 71% 4%;
-
-  --secondary: 223 47% 11%;
-  --secondary-foreground: 213 31% 91%;
-
-  --muted: 223 47% 11%;
-  --muted-foreground: 215 16% 57%;
-
-  --accent: 186 94% 50%;
-  --accent-foreground: 224 71% 4%;
-
-  --destructive: 0 63% 31%;
-  --destructive-foreground: 0 0% 98%;
-
-  --border: 216 34% 17%;
-  --input: 216 34% 17%;
-  --ring: 213 94% 68%;
-}
 
 /* ─── Tailwind v4 @theme mapping ────────────────────────────────────────────
  * Maps CSS variables → Tailwind utility classes.
@@ -145,13 +116,18 @@
     color-scheme: light;
   }
 
-  html.dark {
-    color-scheme: dark;
-  }
 
   body {
     background-color: hsl(var(--background));
     color: hsl(var(--foreground));
     font-family: var(--font-sans, Arial, Helvetica, sans-serif);
   }
+
+  .glass {
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+  }
+
 }

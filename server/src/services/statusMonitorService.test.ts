@@ -19,16 +19,19 @@ vi.mock('../utils/db', () => ({
   },
 }));
 
-vi.mock('@stellar/stellar-sdk', () => ({
-  default: {
-    Server: vi.fn().mockImplementation(() => ({
-      serverInfo: vi.fn().mockResolvedValue({
-        ledger: 12345,
-        protocol_version: 18,
-      }),
-    })),
-  },
-}));
+vi.mock('@stellar/stellar-sdk', () => {
+  const mockServer = vi.fn().mockImplementation(() => ({
+    serverInfo: vi.fn().mockResolvedValue({
+      ledger: 12345,
+      protocol_version: 18,
+    }),
+  }));
+  return {
+    default: {
+      Server: mockServer,
+    },
+  };
+});
 
 describe('StatusMonitorService', () => {
   let statusMonitor: StatusMonitorService;
@@ -309,9 +312,9 @@ describe('StatusMonitorService', () => {
     it('should handle Horizon timeout', async () => {
       // Mock Stellar SDK to throw timeout
       const { default: StellarSdk } = await import('@stellar/stellar-sdk');
-      (StellarSdk.Server as any).mockImplementation(() => ({
+      vi.mocked(StellarSdk.Server).mockImplementationOnce(() => ({
         serverInfo: vi.fn().mockRejectedValue(new Error('Timeout')),
-      }));
+      } as any));
 
       const result = await (statusMonitor as any).checkHorizon();
       

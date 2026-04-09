@@ -232,6 +232,9 @@ model Transaction {
   status      String   // PENDING, SUCCESS, FAILED
   costStroops BigInt
   category    String   @default("Other")
+  chain       String   @default("stellar")
+  crossChainSettlement CrossChainSettlement?
+  sarReports  SARReport[]
   createdAt   DateTime @default(now())
 
 
@@ -320,15 +323,10 @@ model DigestUnsubscribe {
 // Audit log — supports both legacy event exports and newer admin summaries.
 model AuditLog {
   id        String   @id @default(uuid())
-  eventType String?
   actor     String   // user ID, "system", or service name
-  // Legacy format fields (auditLogger.ts)
-  eventType String?
-  payload   Json?
-  timestamp DateTime @default(now())
-  // Newer format fields (auditLog.ts)
   action    String?  // e.g. "tenant.create", "apikey.revoke", "signer.add"
   target    String?  // affected resource ID
+  eventType String?
   payload   Json?
   metadata  String?  // JSON blob with extra context
   aiSummary String?  // One-line AI-generated summary
@@ -337,11 +335,9 @@ model AuditLog {
 
   @@index([eventType])
   @@index([actor])
-  @@index([eventType])
   @@index([action])
   @@index([timestamp])
   @@index([createdAt])
-  @@index([timestamp])
 }
 
 // Spend baseline for anomaly detection (7-day rolling average per tenant)
@@ -544,25 +540,6 @@ model CrossChainSync {
   @@index([sourceTxHash])
 }
 
-// Monitor cross-chain settlement operations and tracking timeouts/stalls.
-model CrossChainSettlement {
-  id              String   @id @default(uuid())
-  sourceChain     String   // e.g. "ethereum", "stellar"
-  targetChain     String
-  sourceTxHash    String   @unique
-  targetTxHash    String?
-  amount          BigInt   // Amount in base units
-  asset           String   // e.g. "USDC", "XLM"
-  status          String   @default("PENDING") // PENDING, COMPLETED, FAILED, STALLED, REFUNDED
-  timeoutAt       DateTime
-  error           String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  @@index([status])
-  @@index([sourceTxHash])
-  @@index([timeoutAt])
-}
 
 // Admin users with role-based access control
 model AdminUser {
