@@ -1,0 +1,146 @@
+import StellarSdk from "@stellar/stellar-sdk";
+import { Config, VaultConfig } from "../config";
+import { GrpcEngineSignerClient } from "./grpcEngineClient";
+import { grpcSigner } from "./grpcSigner";
+import { nativeSigner } from "./native";
+export { SignerPool } from "./signerPool";
+export type {
+  PoolAccountSnapshot,
+  PooledSignerAccount,
+  SignerLease,
+  SignerPoolOptions,
+  SignerSelectionStrategy,
+} from "./signerPool";
+
+interface SignableTransaction {
+  addDecoratedSignature(signature: unknown): void;
+  hash(): Buffer;
+  signatures: unknown[];
+  toXDR(): string;
+}
+
+interface SignerMetadata {
+  hint: Buffer;
+}
+
+const signerMetadataCache = new Map<string, SignerMetadata>();
+let grpcEngineSignerClient: GrpcEngineSignerClient | null = null;
+
+function getSignerMetadata(secret: string): SignerMetadata {
+  const cached = signerMetadataCache.get(secret);
+  if (cached) {
+    return cached;
+  }
+
+  const keypair = StellarSdk.Keypair.fromSecret(secret);
+  const metadata = {
+    hint: Buffer.from(keypair.signatureHint()),
+  };
+
+  signerMetadataCache.set(secret, metadata);
+  return metadata;
+}
+
+function getSignerMetadataFromPublicKey(publicKey: string): SignerMetadata {
+  // Cache by public key so we never have to keep secret material around.
+  const cached = signerMetadataCache.get(publicKey);
+  if (cached) {
+    return cached;
+  }
+
+  const keypair = StellarSdk.Keypair.fromPublicKey(publicKey);
+  const metadata = {
+    hint: Buffer.from(keypair.signatureHint()),
+  };
+
+  signerMetadataCache.set(publicKey, metadata);
+  return metadata;
+}
+
+export async function signTransaction(
+  tx: SignableTransaction,
+  secret: string,
+  configOrNetworkPassphrase?: Config | string,
+): Promise<void> {
+  if (typeof configOrNetworkPassphrase === "string") {
+    const response = await grpcSigner.signXdr(
+      tx.toXDR(),
+      secret,
+      configOrNetworkPassphrase,
+    );
+    const signedTransaction = StellarSdk.TransactionBuilder.fromXDR(
+      response.signed_xdr,
+      configOrNetworkPassphrase,
+    ) as { signatures: unknown[] };
+
+    tx.signatures = signedTransaction.signatures;
+    return;
+  }
+
+  const { hint } = getSignerMetadata(secret);
+  const signature =
+    configOrNetworkPassphrase?.grpcEngine
+      ? await getGrpcEngineSignerClient(configOrNetworkPassphrase).signPayload(secret, tx.hash())
+      : await nativeSigner.signPayload(secret, tx.hash());
+
+  tx.addDecoratedSignature(
+    new StellarSdk.xdr.DecoratedSignature({
+      hint,
+      signature,
+    }),
+  );
+}
+
+export async function signTransactionWithVault(
+  tx: SignableTransaction,
+  feePayerPublicKey: string,
+  vaultConfig: VaultConfig,
+  feePayerSecretPath: string,
+  config?: Config,
+): Promise<void> {
+  const { hint } = getSignerMetadataFromPublicKey(feePayerPublicKey);
+
+  const signature = config?.grpcEngine
+    ? await getGrpcEngineSignerClient(config).signPayloadFromVault(
+        vaultConfig,
+        feePayerSecretPath,
+        tx.hash(),
+      )
+    : await nativeSigner.signPayloadFromVault(
+        vaultConfig.addr,
+        vaultConfig.token ?? "",
+        vaultConfig.appRole?.roleId ?? "",
+        vaultConfig.appRole?.secretId ?? "",
+        vaultConfig.kvMount,
+        vaultConfig.kvVersion,
+        feePayerSecretPath,
+        vaultConfig.secretField,
+        tx.hash()
+      );
+
+  tx.addDecoratedSignature(
+    new StellarSdk.xdr.DecoratedSignature({
+      hint,
+      signature,
+    })
+  );
+}
+
+export function signTransactionWithNode(
+  tx: { sign(...keypairs: unknown[]): void },
+  secret: string
+): void {
+  tx.sign(StellarSdk.Keypair.fromSecret(secret));
+}
+
+function getGrpcEngineSignerClient(config: Config): GrpcEngineSignerClient {
+  if (!config.grpcEngine) {
+    throw new Error("gRPC engine signing requested without FLUID_GRPC_ENGINE_ADDRESS");
+  }
+
+  if (!grpcEngineSignerClient) {
+    grpcEngineSignerClient = new GrpcEngineSignerClient(config.grpcEngine);
+  }
+
+  return grpcEngineSignerClient;
+}

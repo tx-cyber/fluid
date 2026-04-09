@@ -1,0 +1,40 @@
+name: Chromatic Visual Regression
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  chromatic:
+    name: Chromatic UI Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        working-directory: admin-dashboard
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Chromatic requires full git history for baseline comparisons
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: admin-dashboard/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Publish to Chromatic
+        run: npx chromatic --project-token=${{ secrets.CHROMATIC_PROJECT_TOKEN }} --auto-accept-changes="main"
+        env:
+          # Tells Chromatic we aren't using an interactive terminal
+          CI: true

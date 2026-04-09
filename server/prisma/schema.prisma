@@ -1,0 +1,580 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model SubscriptionTier {
+  id           String   @id @default(uuid())
+  name         String   @unique
+  txLimit      Int
+  rateLimit    Int
+  priceMonthly Int
+  tenants      Tenant[]
+  tierAdjustmentsFrom TierAdjustment[] @relation("TierAdjustmentFromTier")
+  tierAdjustmentsTo   TierAdjustment[] @relation("TierAdjustmentToTier")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Tenant {
+  id                 String            @id @default(uuid())
+  name               String
+  contactEmail       String?
+  region             String            @default("US") // Data residency region: "US" | "EU"
+  subscriptionTierId String
+  subscriptionTier   SubscriptionTier  @relation(fields: [subscriptionTierId], references: [id])
+  dailyQuotaStroops  BigInt            @default(1000000) // 0.1 XLM default
+  totalCredit        BigInt            @default(0) // Total purchased credit
+  tosAcceptedAt      DateTime?
+  tosAcceptedIp      String?
+  tosVersion         String?
+  webhookUrl         String?
+  webhookSecret      String?
+  webhookEventTypes  String?
+  deletedAt          DateTime?
+  erasureRequestedAt DateTime?
+  scheduledPurgeAt   DateTime?
+  apiKeys                ApiKey[]
+  webhookDeliveries      WebhookDelivery[]
+  webhookDlqEntries      WebhookDlq[]
+  quotaTopUps            QuotaTopUp[]
+  payments               Payment[]
+  sponsoredTransactions  SponsoredTransaction[]
+  crossChainSettlements  CrossChainSettlement[]
+  usageStats             TenantUsageStats[]
+  tierAdjustments        TierAdjustment[]
+  flaggedEvents          FlaggedEvent[]
+  spendBaseline          SpendBaseline?
+  sarReports             SARReport[]
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  @@index([subscriptionTierId])
+  @@index([contactEmail])
+  @@index([deletedAt])
+  @@index([scheduledPurgeAt])
+}
+
+model ApiKey {
+  id                    String    @id @default(uuid())
+  key                   String    @unique
+  prefix                String
+  name                  String    @default("Default API Key")
+  tenantId              String
+  tenant                Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  active                Boolean   @default(true)
+  dailyQuotaStroops     BigInt    @default(1000000) // 0.1 XLM default
+  maxRequests           Int       @default(5)
+  windowMs              Int       @default(60000)
+  tier                  String    @default("free") // free or pro
+  isSandbox             Boolean   @default(false)
+  sandboxFeePayerSecret String?
+  sandboxLastResetAt    DateTime?
+  allowedChains         String    @default("stellar") // comma-separated: stellar,evm,solana,cosmos
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([isSandbox])
+}
+
+model WebhookDelivery {
+  id          String   @id @default(uuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  url         String
+  payload     String
+  status      String   @default("pending") // pending, success, failed
+  retryCount  Int      @default(0)
+  lastError   String?
+  nextAttempt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([status])
+  @@index([tenantId])
+}
+
+model WebhookDlq {
+  id             String   @id @default(uuid())
+  tenantId       String
+  tenant         Tenant   @relation(fields: [tenantId], references: [id])
+  deliveryId     String
+  url            String
+  payload        String
+  lastError      String?
+  retryCount     Int
+  failedAt       DateTime @default(now())
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([expiresAt])
+}
+
+model QuotaTopUp {
+  id              String   @id @default(uuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id])
+  stripeSessionId String   @unique
+  amountCents     Int
+  quotaStroops    BigInt
+  status          String   @default("pending") // pending, fulfilled, failed
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([status])
+}
+
+model Payment {
+  id              String   @id @default(uuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id])
+  stripeSessionId String   @unique
+  stripePaymentId String?
+  amountCents     Int
+  creditStroops   BigInt
+  status          String   @default("pending")
+  metadata        Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([status])
+}
+
+model SupportedAsset {
+  id         String   @id @default(uuid())
+  code       String
+  issuer     String?
+  minBalance String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([code, issuer])
+}
+
+model SponsoredTransaction {
+  id         String   @id @default(uuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id])
+  feeStroops BigInt
+  chain      String   @default("stellar") // stellar, evm, solana, cosmos
+  createdAt  DateTime @default(now())
+
+  @@index([chain])
+}
+model SignerSecret {
+  id                String   @id @default(uuid())
+  publicKey         String   @unique
+  encryptedSecret   String
+  initializationVec String
+  authTag           String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model DeviceToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  label     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([token])
+}
+
+// Holds unverified sign-up requests until the developer confirms their email.
+model PendingRegistration {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  projectName   String
+  intendedUse   String
+  token         String   @unique
+  tokenExpiresAt DateTime
+  tosAcceptedAt DateTime?
+  tosAcceptedIp String?
+  tosVersion    String?
+  // pending → verified (token consumed) or expired (TTL elapsed)
+  status        String   @default("pending")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([token])
+  @@index([status])
+}
+
+model TermsAcceptanceAudit {
+  id          String   @id @default(uuid())
+  email       String
+  projectName String
+  tosVersion  String
+  acceptedAt  DateTime @default(now())
+  acceptedIp  String
+  createdAt   DateTime @default(now())
+
+  @@index([email])
+  @@index([tosVersion])
+  @@index([acceptedAt])
+}
+
+model Transaction {
+  id          String   @id @default(uuid())
+  txHash      String?  // The hash of the fee-bump transaction
+  innerTxHash String   // The hash of the original transaction
+  tenantId    String?
+  status      String   // PENDING, SUCCESS, FAILED
+  costStroops BigInt
+  category    String   @default("Other")
+  createdAt   DateTime @default(now())
+
+
+  @@index([tenantId])
+  @@index([status])
+  @@index([txHash])
+  @@index([category])
+  @@index([chain])
+}
+
+model CrossChainSettlement {
+  id                   String   @id @default(uuid())
+  transactionId        String   @unique
+  transaction          Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  tenantId             String
+  tenant               Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  status               String   @default("AWAITING_EVM_PAYMENT") // AWAITING_EVM_PAYMENT, EVM_CONFIRMED, STELLAR_SETTLED, REFUNDED, REFUND_FAILED
+  sourceChainId        Int
+  sourceTokenAddress   String
+  sourceAmount         String
+  payerAddress         String
+  recipientAddress     String
+  startBlock           Int
+  confirmationsRequired Int     @default(1)
+  xdr                  String
+  submit               Boolean  @default(false)
+  feePayerPublicKey    String
+  sourceTxHash         String?
+  refundTxHash         String?
+  errorMessage         String?
+  confirmedAt          DateTime?
+  settledAt            DateTime?
+  refundedAt           DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([status])
+  @@index([tenantId])
+  @@index([sourceTxHash])
+}
+
+// In-dashboard notification centre — persisted alerts for logged-in admins.
+model AdminNotification {
+  id        String   @id @default(uuid())
+  type      String   // "low_balance" | "incident" | "info" | "warning" | "critical"
+  title     String
+  message   String
+  read      Boolean  @default(false)
+  metadata  String?  // JSON blob for extra context (e.g. publicKey, balanceXlm)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([read])
+  @@index([createdAt])
+}
+
+// Health monitoring events for public status page
+model StatusEvent {
+  id          String   @id @default(uuid())
+  component   String   // "api" | "horizon" | "database"
+  status      String   // "operational" | "degraded" | "down"
+  message     String?  // Optional error message or description
+  metadata    String?  // JSON blob for extra context (response times, etc.)
+  createdAt   DateTime @default(now())
+
+  @@index([component])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// Status page subscriptions for email notifications
+model StatusSubscription {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active])
+}
+model DigestUnsubscribe {
+  email     String   @id
+  createdAt DateTime @default(now())
+}
+
+// Audit log — supports both legacy event exports and newer admin summaries.
+model AuditLog {
+  id        String   @id @default(uuid())
+  eventType String?
+  actor     String   // user ID, "system", or service name
+  // Legacy format fields (auditLogger.ts)
+  eventType String?
+  payload   Json?
+  timestamp DateTime @default(now())
+  // Newer format fields (auditLog.ts)
+  action    String?  // e.g. "tenant.create", "apikey.revoke", "signer.add"
+  target    String?  // affected resource ID
+  payload   Json?
+  metadata  String?  // JSON blob with extra context
+  aiSummary String?  // One-line AI-generated summary
+  timestamp DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  @@index([eventType])
+  @@index([actor])
+  @@index([eventType])
+  @@index([action])
+  @@index([timestamp])
+  @@index([createdAt])
+  @@index([timestamp])
+}
+
+// Spend baseline for anomaly detection (7-day rolling average per tenant)
+model SpendBaseline {
+  id                String   @id @default(uuid())
+  tenantId          String   @unique
+  tenant            Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  dailyAvgStroops   BigInt   @default(0)
+  hourlyAvgStroops  BigInt   @default(0)
+  totalTransactions Int      @default(0)
+  lastUpdated       DateTime @default(now())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([tenantId])
+}
+
+// Anomaly detection flagged events (spend pattern anomalies per tenant)
+model FlaggedEvent {
+  id                   String    @id @default(uuid())
+  tenantId             String
+  tenant               Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  eventDate            DateTime
+  hourStart            DateTime
+  actualSpendStroops   BigInt
+  baselineDailyStroops BigInt
+  multiplier           Float
+  riskScore            Float
+  status               String    @default("pending") // pending, approved, blocked, dismissed
+  metadata             String?   // JSON blob
+  adminNote            String?
+  reviewedBy           String?
+  reviewedAt           DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@index([tenantId])
+  @@index([status])
+  @@index([riskScore])
+  @@index([createdAt])
+}
+
+// SAR (Suspicious Activity Report) — flags individual transactions matching SAR rules
+model SARReport {
+  id            String    @id @default(uuid())
+  transactionId String
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  tenantId      String
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ruleCode      String    // e.g. HIGH_FREQUENCY, HIGH_SOROBAN_FEE, LARGE_FEE_BUMP
+  reason        String    // Human-readable reason for the flag
+  status        String    @default("pending_review") // pending_review, confirmed_suspicious, false_positive
+  adminNote     String?
+  reviewedBy    String?
+  reviewedAt    DateTime?
+  metadata      String?   // JSON blob with rule evaluation context
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([transactionId, ruleCode])
+  @@index([tenantId])
+  @@index([status])
+  @@index([ruleCode])
+  @@index([createdAt])
+}
+
+// Cosmos FeeGrant — per-chain granter wallet configuration.
+model CosmosGranterConfig {
+  id          String   @id @default(uuid())
+  chainId     String   @unique // e.g. "cosmoshub-4", "theta-testnet-001"
+  name        String           // Human-readable label
+  rpcUrl      String           // Tendermint/CometBFT RPC endpoint
+  prefix      String   @default("cosmos") // bech32 address prefix
+  denom       String   @default("uatom")  // fee denom
+  enabled     Boolean  @default(false)
+  // Granter mnemonic encrypted with AES-256-GCM (same scheme as SignerSecret)
+  encryptedMnemonic   String?
+  initializationVec   String?
+  authTag             String?
+  granterAddress      String?  // derived bech32 address (cached)
+  allowances  CosmosFeeGrantAllowance[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([enabled])
+}
+
+// Tracks individual fee-grant allowances issued on Cosmos chains.
+model CosmosFeeGrantAllowance {
+  id            String   @id @default(uuid())
+  granterId     String
+  granter       CosmosGranterConfig @relation(fields: [granterId], references: [id], onDelete: Cascade)
+  granteeAddr   String   // bech32 address of the grantee
+  allowanceType String   // "basic" | "periodic"
+  spendLimit    String?  // JSON array of Coin, e.g. [{"denom":"uatom","amount":"1000000"}]
+  expiration    DateTime?
+  // Periodic-specific fields
+  periodSeconds Int?
+  periodLimit   String?  // JSON Coin array for per-period limit
+  txHash        String?  // on-chain tx hash of the grant
+  status        String   @default("pending") // pending, active, revoked, expired
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([granterId, granteeAddr])
+  @@index([status])
+  @@index([granteeAddr])
+}
+
+// Chain registry — operator-managed list of supported Stellar networks.
+// Fee payer secret is stored AES-256-GCM encrypted (same scheme as SignerSecret).
+model ChainRegistry {
+  id                String   @id @default(uuid())
+  chainId           String   @unique // e.g. "mainnet", "testnet"
+  name              String           // Human-readable name
+  rpcUrl            String           // Horizon or RPC endpoint URL
+  enabled           Boolean  @default(false)
+  encryptedSecret   String?          // Encrypted fee-payer secret (nullable)
+  initializationVec String?          // AES-GCM IV
+  authTag           String?          // AES-GCM auth tag
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([enabled])
+}
+
+model BridgeTransaction {
+  id            String   @id @default(uuid())
+  sourceChain   String   // e.g. "ethereum", "base"
+  targetChain   String   // e.g. "stellar"
+  sourceTxHash  String   @unique
+  targetTxHash  String?
+  vaa           String?  // The Wormhole VAA (hex or base64)
+  amount        BigInt   // Amount in base units (e.g. 6 decimals for USDC)
+  asset         String   // e.g. "USDC"
+  status        String   // PENDING, VAA_READY, COMPLETED, FAILED
+  error         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([status])
+  @@index([sourceTxHash])
+}
+// Tracks daily usage statistics for each tenant
+model TenantUsageStats {
+  id            String   @id @default(uuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  date          DateTime @default(now()) // UTC date for the stats
+  requestCount  Int      @default(0)
+  violationCount Int     @default(0) // Rate limit violations
+  burstScore    Float    @default(0) // Burst behavior score (0-1)
+  avgRequestRate Float   @default(0) // Average requests per minute
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([tenantId, date])
+  @@index([date])
+  @@index([tenantId])
+}
+
+// Tracks rate limit tier adjustments and audit trail
+model TierAdjustment {
+  id              String   @id @default(uuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  fromTierId      String
+  fromTier        SubscriptionTier @relation("TierAdjustmentFromTier", fields: [fromTierId], references: [id])
+  toTierId        String
+  toTier          SubscriptionTier @relation("TierAdjustmentToTier", fields: [toTierId], references: [id])
+  reason          String   // "auto_upgrade", "admin_override", "violation_demotion"
+  violationFreeDays Int    @default(0) // Number of days without violations
+  avgUsageScore   Float    @default(0) // 30-day average usage score
+  autoAdjusted    Boolean  @default(false) // Whether this was an automatic adjustment
+  adjustedBy      String?  // Admin user ID if manual override
+  metadata        String?  // JSON blob for additional context
+  createdAt       DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([createdAt])
+  @@index([autoAdjusted])
+}
+
+// Tracks cross-chain state sync events (e.g. Counter sync)
+model CrossChainSync {
+  id              String   @id @default(uuid())
+  sourceChain     String   // "stellar" or "ethereum"
+  targetChain     String
+  sourceTxHash    String   @unique
+  targetTxHash    String?
+  sourceContract  String
+  targetContract  String
+  payload         String   // JSON string of the sync data (e.g. { "count": 10 })
+  status          String   @default("PENDING") // PENDING, COMPLETED, FAILED
+  error           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([status])
+  @@index([sourceTxHash])
+}
+
+// Monitor cross-chain settlement operations and tracking timeouts/stalls.
+model CrossChainSettlement {
+  id              String   @id @default(uuid())
+  sourceChain     String   // e.g. "ethereum", "stellar"
+  targetChain     String
+  sourceTxHash    String   @unique
+  targetTxHash    String?
+  amount          BigInt   // Amount in base units
+  asset           String   // e.g. "USDC", "XLM"
+  status          String   @default("PENDING") // PENDING, COMPLETED, FAILED, STALLED, REFUNDED
+  timeoutAt       DateTime
+  error           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([status])
+  @@index([sourceTxHash])
+  @@index([timeoutAt])
+}
+
+// Admin users with role-based access control
+model AdminUser {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  role         String   @default("READ_ONLY") // SUPER_ADMIN | ADMIN | READ_ONLY | BILLING
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([email])
+  @@index([role])
+  @@index([active])
+}

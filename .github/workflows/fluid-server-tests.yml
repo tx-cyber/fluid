@@ -1,0 +1,42 @@
+name: Fluid Server Rust Tests
+
+on:
+  pull_request:
+    paths:
+      - "fluid-server/**"
+      - ".github/workflows/fluid-server-tests.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "fluid-server/**"
+      - ".github/workflows/fluid-server-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verification:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: fluid-server
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Rust-only verification
+        run: cargo test rust_server_handles_static_and_api_without_node --test rust_only_verification -- --nocapture
+
+      - name: Horizon failover verification
+        run: cargo test retries_failed_submission_on_secondary_node_and_logs_statuses -- --nocapture
+
+      - name: Final-error verification
+        run: cargo test does_not_retry_final_submission_errors -- --nocapture
