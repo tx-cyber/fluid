@@ -186,6 +186,11 @@ app.get("/docs.json", (_req: Request, res: Response) => {
   res.send(swaggerSpec);
 });
 
+const limiterStore = new RedisRateLimitStore(
+  redisClient,
+  Math.ceil(config.rateLimitWindowMs / 1000),
+);
+
 const limiter = rateLimit({
   windowMs: config.rateLimitWindowMs,
   max: config.rateLimitMax,

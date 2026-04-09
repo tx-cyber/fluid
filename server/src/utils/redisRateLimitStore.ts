@@ -1,6 +1,10 @@
-// A minimal Redis-backed store compatible with express-rate-limit's expected methods.
-// It implements `incr(key, cb)` and `resetKey(key, cb)` using atomic INCR and EXPIRE behavior.
-export class RedisRateLimitStore {
+import type { Store, IncrementResponse } from "express-rate-limit";
+
+/**
+ * A Redis-backed store implementing the express-rate-limit v6 `Store` interface.
+ * Uses atomic INCR + EXPIRE for safe distributed rate limiting.
+ */
+export class RedisRateLimitStore implements Store {
   private client: any;
   private windowSeconds: number;
 
@@ -9,37 +13,33 @@ export class RedisRateLimitStore {
     this.windowSeconds = windowSeconds;
   }
 
-  // express-rate-limit calls `incr(key, cb)` where cb(err, current) is expected.
-  async incr(key: string, cb: (err: Error | null, value?: number) => void) {
-    try {
-      const count = await this.client.incr(key);
-      if (count === 1) {
-        // set expiry for the window
-        await this.client.expire(key, this.windowSeconds);
-      }
+  /**
+   * express-rate-limit v6 async Store interface.
+   * Returns { totalHits, resetTime }.
+   */
+  async increment(key: string): Promise<IncrementResponse> {
+    const count: number = await this.client.incr(key);
 
-      cb(null, Number(count));
-    } catch (err: any) {
-      cb(err instanceof Error ? err : new Error(String(err)));
+    if (count === 1) {
+      // First increment — set the window expiry
+      await this.client.expire(key, this.windowSeconds);
     }
+
+    const ttl: number = await this.client.ttl(key);
+    const resetTime = new Date(Date.now() + ttl * 1000);
+
+    return { totalHits: count, resetTime };
   }
 
-  // Reset the key for freeing up the limiter (used by express-rate-limit)
-  async resetKey(key: string, cb?: (err?: Error | null) => void) {
-    try {
-      await this.client.del(key);
-      cb && cb(null);
-    } catch (err: any) {
-      cb && cb(err instanceof Error ? err : new Error(String(err)));
-    }
-  }
-
-  // Optional: decrement (not required by express-rate-limit but useful)
-  async decrement(key: string) {
+  async decrement(key: string): Promise<void> {
     try {
       await this.client.decr(key);
-    } catch (err) {
-      // ignore
+    } catch {
+      // ignore — decrement is best-effort
     }
+  }
+
+  async resetKey(key: string): Promise<void> {
+    await this.client.del(key);
   }
 }
