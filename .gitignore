@@ -7,6 +7,7 @@ dist/
 build/
 target/
 *.tsbuildinfo
+scripts/
 
 # Environment variables
 .env
