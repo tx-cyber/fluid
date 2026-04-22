@@ -94,6 +94,20 @@ Mock API keys for local development:
 
 ## API Endpoints
 
+### Responsible disclosure (security.txt)
+
+Fluid serves an RFC 9116 `security.txt` at:
+
+- `GET /.well-known/security.txt`
+- `GET /security.txt` (alias)
+
+Configuration is via environment variables (see `.env.example`):
+
+- `SECURITY_TXT_ENABLED` (default: `true`)
+- `SECURITY_TXT_CONTACTS` (comma-separated `mailto:` and/or `https://` URIs)
+- `SECURITY_TXT_EXPIRES` (RFC3339 timestamp) or `SECURITY_TXT_EXPIRES_IN_DAYS` (default: `365`)
+- Optional: `SECURITY_TXT_PREFERRED_LANGUAGES`, `SECURITY_TXT_CANONICAL_URLS`, `SECURITY_TXT_POLICY_URLS`, `SECURITY_TXT_ACKNOWLEDGMENTS_URLS`, `SECURITY_TXT_ENCRYPTION_URLS`, `SECURITY_TXT_HIRING_URLS`
+
 ### GET /health
 
 Health check endpoint.

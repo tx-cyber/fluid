@@ -85,6 +85,7 @@ import {
   digestUnsubscribeHandler,
   sendDigestNowHandler,
 } from "./handlers/digest";
+import { securityTxtHandler } from "./handlers/securityTxt";
 import {
   createChainHandler,
   deleteChainHandler,
@@ -185,6 +186,10 @@ app.get("/docs.json", (_req: Request, res: Response) => {
   res.setHeader("Content-Type", "application/json");
   res.send(swaggerSpec);
 });
+
+// Responsible disclosure (RFC 9116)
+app.get("/.well-known/security.txt", securityTxtHandler);
+app.get("/security.txt", securityTxtHandler);
 
 const limiterStore = new RedisRateLimitStore(
   redisClient,
