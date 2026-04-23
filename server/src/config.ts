@@ -26,6 +26,7 @@ export interface VaultConfig {
 
 export interface GrpcEngineConfig {
   address: string;
+  secondaryAddress?: string;
   pinnedServerCertSha256: string[];
   serverName: string;
   tlsCaPath: string;
@@ -205,6 +206,7 @@ function loadGrpcEngineConfig(): GrpcEngineConfig | undefined {
 
   return {
     address,
+    secondaryAddress: process.env.FLUID_GRPC_ENGINE_SECONDARY_ADDRESS?.trim(),
     pinnedServerCertSha256: parseCommaSeparatedList(
       process.env.FLUID_GRPC_ENGINE_PINNED_SERVER_CERT_SHA256,
     ).map((value) =>
