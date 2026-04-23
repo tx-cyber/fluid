@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import Image from "next/image";
 import { NotificationBell } from "./dashboard/NotificationBell";
+import { HelpCenter } from "./HelpCenter";
 
 export function Navbar() {
     const pathname = usePathname();
@@ -47,6 +48,7 @@ export function Navbar() {
                     >
                         Changelog
                     </Link>
+                    <HelpCenter />
                     {isAdmin && <NotificationBell />}
                 </nav>
             </div>
