@@ -1,10 +1,12 @@
+import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
+
 type PrismaClientLike = {
-  [key: string]: unknown;
+  [key: string]: any;
 };
 
 type PrismaModule = {
   PrismaClient: new (options?: {
-    datasourceUrl?: string;
+    adapter?: any;
     log?: string[];
   }) => PrismaClientLike;
 };
@@ -26,10 +28,13 @@ function loadPrismaClient(): PrismaModule["PrismaClient"] {
 
 const PrismaClient = loadPrismaClient();
 
+const dbUrl = process.env.DATABASE_URL ?? "file:./dev.db";
+const adapter = new PrismaBetterSqlite3({ url: dbUrl });
+
 export const prisma =
   globalForPrisma.prisma ??
   new PrismaClient({
-    datasourceUrl: process.env.DATABASE_URL,
+    adapter,
     log:
       process.env.NODE_ENV === "development"
         ? ["query", "error", "warn"]

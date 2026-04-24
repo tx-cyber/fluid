@@ -1,29 +1,44 @@
-import * as StellarSdk from "@stellar/stellar-sdk";
-import { Config } from "../config";
 import { TransactionRecord, transactionStore } from "./transactionStore";
+import { createLogger, serializeError } from "../utils/logger";
+
+import type { Config } from "../config";
+import { HorizonFailoverClient } from "../horizon/failoverClient";
+import type { SlackNotifierLike } from "../services/slackNotifier";
+import { WebhookService } from "../services/webhook";
+
+const logger = createLogger({ component: "ledger_monitor" });
 
 export class LedgerMonitor {
-  private server: StellarSdk.Horizon.Server;
-  private config: Config;
+  private readonly client: HorizonFailoverClient;
+  private readonly webhookService: WebhookService;
   private pollInterval: NodeJS.Timeout | null = null;
-  private readonly POLL_INTERVAL_MS = 30000; // 30 seconds to respect Horizon rate limits
+  private readonly POLL_INTERVAL_MS = 30000;
+  private readonly batchSize: number;
 
-  constructor(config: Config) {
-    this.config = config;
-    if (!config.horizonUrl) {
-      throw new Error("Horizon URL is required for ledger monitoring");
+  constructor(
+    config: Config,
+    webhookService: WebhookService,
+    private readonly slackNotifier?: SlackNotifierLike,
+    client?: HorizonFailoverClient,
+  ) {
+    if (config.horizonUrls.length === 0) {
+      throw new Error(
+        "At least one Horizon URL is required for ledger monitoring",
+      );
     }
-    this.server = new StellarSdk.Horizon.Server(config.horizonUrl);
+
+    this.client = client || HorizonFailoverClient.fromConfig(config);
+    this.webhookService = webhookService;
+    this.batchSize = config.workers?.ledgerMonitorConcurrency ?? 5;
   }
 
   start(): void {
-    console.log("[LedgerMonitor] Starting ledger monitor worker");
-    console.log(`[LedgerMonitor] Poll interval: ${this.POLL_INTERVAL_MS}ms`);
-
-    // Run immediately on start
+    logger.info(
+      { poll_interval_ms: this.POLL_INTERVAL_MS },
+      "Starting ledger monitor worker",
+    );
     this.checkPendingTransactions();
 
-    // Set up recurring polling
     this.pollInterval = setInterval(() => {
       this.checkPendingTransactions();
     }, this.POLL_INTERVAL_MS);
@@ -33,40 +48,44 @@ export class LedgerMonitor {
     if (this.pollInterval) {
       clearInterval(this.pollInterval);
       this.pollInterval = null;
-      console.log("[LedgerMonitor] Stopped ledger monitor worker");
+      logger.info("Stopped ledger monitor worker");
     }
+  }
+
+  getNodeStatuses() {
+    return this.client.getNodeStatuses();
   }
 
   private async checkPendingTransactions(): Promise<void> {
     try {
-      console.log("[LedgerMonitor] Checking pending transactions...");
+      logger.debug("Checking pending transactions");
 
       const pendingTransactions = transactionStore.getPendingTransactions();
-
       if (pendingTransactions.length === 0) {
-        console.log("[LedgerMonitor] No pending transactions to check");
+        logger.debug("No pending transactions to check");
         return;
       }
 
-      console.log(
-        `[LedgerMonitor] Processing ${pendingTransactions.length} pending transactions`,
+      logger.info(
+        {
+          ledger_monitor_concurrency: this.batchSize,
+          pending_transactions: pendingTransactions.length,
+        },
+        "Processing pending transactions",
       );
 
-      // Process transactions in batches to avoid overwhelming Horizon
-      const batchSize = 5;
-      for (let i = 0; i < pendingTransactions.length; i += batchSize) {
-        const batch = pendingTransactions.slice(i, i + batchSize);
+      for (let i = 0; i < pendingTransactions.length; i += this.batchSize) {
+        const batch = pendingTransactions.slice(i, i + this.batchSize);
         await Promise.all(batch.map((tx) => this.checkTransaction(tx)));
 
-        // Add delay between batches to respect rate limits
-        if (i + batchSize < pendingTransactions.length) {
-          await this.delay(1000); // 1 second delay between batches
+        if (i + this.batchSize < pendingTransactions.length) {
+          await this.delay(1000);
         }
       }
     } catch (error) {
-      console.error(
-        "[LedgerMonitor] Error checking pending transactions:",
-        error,
+      logger.error(
+        { ...serializeError(error) },
+        "Error checking pending transactions",
       );
     }
   }
@@ -75,51 +94,107 @@ export class LedgerMonitor {
     transaction: TransactionRecord,
   ): Promise<void> {
     try {
-      console.log(
-        `[LedgerMonitor] Checking transaction ${transaction.hash} (current status: ${transaction.status})`,
+      logger.debug(
+        {
+          status: transaction.status,
+          tenant_id: transaction.tenantId,
+          tx_hash: transaction.hash,
+        },
+        "Checking transaction status",
       );
 
-      const txRecord = await this.server
-        .transactions()
-        .transaction(transaction.hash)
-        .call();
+      const txRecord = await this.client.getTransaction(transaction.hash);
 
-      // Transaction was found and successful
       if (txRecord.successful) {
-        console.log(
-          `[LedgerMonitor] Transaction ${transaction.hash} was SUCCESSFUL`,
+        logger.info(
+          { tenant_id: transaction.tenantId, tx_hash: transaction.hash },
+          "Transaction confirmed successfully",
         );
         transactionStore.updateTransactionStatus(transaction.hash, "success");
+        await this.webhookService.dispatch(
+          transaction.tenantId,
+          transaction.hash,
+          "success",
+        );
       } else {
-        console.log(
-          `[LedgerMonitor] Transaction ${transaction.hash} was UNSUCCESSFUL`,
+        logger.warn(
+          { tenant_id: transaction.tenantId, tx_hash: transaction.hash },
+          "Transaction confirmed unsuccessfully",
         );
         transactionStore.updateTransactionStatus(transaction.hash, "failed");
+        await this.webhookService.dispatch(
+          transaction.tenantId,
+          transaction.hash,
+          "failed",
+        );
+        await this.notifyFailedTransaction(
+          transaction,
+          "Horizon confirmed the transaction but marked it unsuccessful.",
+        );
       }
     } catch (error: any) {
-      // Handle 404 - transaction not found (might be dropped from mempool)
       if (error.response?.status === 404 || error.message?.includes("404")) {
-        console.log(
-          `[LedgerMonitor] Transaction ${transaction.hash} not found on ledger (404) - marking as failed`,
+        logger.warn(
+          { tenant_id: transaction.tenantId, tx_hash: transaction.hash },
+          "Transaction not found on ledger; marking as failed",
         );
         transactionStore.updateTransactionStatus(transaction.hash, "failed");
-      } else {
-        console.error(
-          `[LedgerMonitor] Error checking transaction ${transaction.hash}:`,
-          error.message || error,
+        await this.webhookService.dispatch(
+          transaction.tenantId,
+          transaction.hash,
+          "failed",
         );
-        // For test transactions with invalid hashes, mark as failed
+        await this.notifyFailedTransaction(
+          transaction,
+          "Transaction was not found on Horizon and has been marked as failed.",
+        );
+      } else {
+        logger.error(
+          {
+            ...serializeError(error),
+            tenant_id: transaction.tenantId,
+            tx_hash: transaction.hash,
+          },
+          "Error checking transaction status",
+        );
         if (
           transaction.hash.startsWith("test-") ||
           transaction.hash.length < 56
         ) {
-          console.log(
-            `[LedgerMonitor] Test/invalid transaction ${transaction.hash} - marking as failed`,
+          logger.warn(
+            { tenant_id: transaction.tenantId, tx_hash: transaction.hash },
+            "Test or invalid transaction detected; marking as failed",
           );
           transactionStore.updateTransactionStatus(transaction.hash, "failed");
+          await this.webhookService.dispatch(
+            transaction.tenantId,
+            transaction.hash,
+            "failed",
+          );
+          await this.notifyFailedTransaction(
+            transaction,
+            "Transaction failed validation during monitoring and was marked as failed.",
+          );
         }
       }
     }
+  }
+
+  private async notifyFailedTransaction(
+    transaction: TransactionRecord,
+    detail: string,
+  ): Promise<void> {
+    if (!this.slackNotifier) {
+      return;
+    }
+
+    await this.slackNotifier.notifyFailedTransaction({
+      detail,
+      source: "ledger_monitor",
+      tenantId: transaction.tenantId,
+      timestamp: new Date(),
+      transactionHash: transaction.hash,
+    });
   }
 
   private delay(ms: number): Promise<void> {
@@ -127,18 +202,24 @@ export class LedgerMonitor {
   }
 }
 
-// Singleton instance for the application
 let ledgerMonitor: LedgerMonitor | null = null;
 
-export function initializeLedgerMonitor(config: Config): LedgerMonitor {
+export function initializeLedgerMonitor(
+  config: Config,
+  slackNotifier?: SlackNotifierLike,
+): LedgerMonitor {
   if (ledgerMonitor) {
-    console.log(
-      "[LedgerMonitor] Ledger monitor already initialized, stopping previous instance",
+    logger.warn(
+      "Ledger monitor already initialized; stopping previous instance",
     );
     ledgerMonitor.stop();
   }
 
-  ledgerMonitor = new LedgerMonitor(config);
+  ledgerMonitor = new LedgerMonitor(
+    config,
+    new WebhookService(),
+    slackNotifier,
+  );
   return ledgerMonitor;
 }
 

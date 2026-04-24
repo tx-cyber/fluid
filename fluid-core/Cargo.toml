@@ -1,0 +1,32 @@
+[package]
+name = "fluid-core"
+version.workspace = true
+edition.workspace = true
+description = "Core signing and transaction logic for Stellar Fluid"
+license.workspace = true
+repository.workspace = true
+documentation = "https://docs.rs/fluid-core"
+keywords = ["stellar", "soroban", "signing", "transaction", "passkey"]
+categories = ["cryptography", "api-bindings"]
+readme = "README.md"
+
+[lib]
+name = "fluid_core"
+
+[dependencies]
+ed25519-dalek.workspace = true
+stellar-strkey.workspace = true
+tokio.workspace = true
+zeroize.workspace = true
+thiserror.workspace = true
+
+# Additional dependencies for transaction building
+stellar-xdr = { version = "21.2.0", features = ["std"] }
+serde = { version = "1.0", features = ["derive"], optional = true }
+
+[dev-dependencies]
+tokio-test = "0.4"
+
+[features]
+default = []
+serde = ["dep:serde"]
