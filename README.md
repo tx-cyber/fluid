@@ -144,6 +144,14 @@ npm run build:standalone   # outputs client/dist/fluid.min.js
 
 A self-contained demo is available at [`client/demo/cdn-demo.html`](client/demo/cdn-demo.html) — open it in a browser after building.
 
+## Architecture Decisions
+
+Key architectural choices (why Rust, why gRPC, why Prisma) are documented as Architecture Decision Records in [`docs/adr/`](docs/adr/README.md).
+
+## Contributing
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for development setup, pull request guidelines, and code style requirements.
+
 ## Migration
 
 See `MIGRATION_GUIDE.md` for the Rust cutover path, environment mapping, and rollout guidance.

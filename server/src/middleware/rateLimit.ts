@@ -3,7 +3,14 @@ import { ApiKeyConfig, maskApiKey } from "./apiKeys";
 import { consumeLeakyBucket } from "../utils/redis";
 import { TenantUsageTracker } from "../services/tenantUsageTracker";
 
-// Fallback in-memory leaky bucket if Redis is unavailable.
+// When STATELESS_MODE=true the in-memory fallback is disabled so that all rate
+// limit state lives exclusively in Redis. This is required for horizontal
+// scaling: multiple Node API replicas sharing a Redis instance will agree on
+// per-key counters, whereas independent in-memory maps would diverge.
+const STATELESS_MODE = process.env.STATELESS_MODE === "true";
+
+// Fallback in-memory leaky bucket used only when Redis is unavailable and
+// STATELESS_MODE is false (single-instance / dev deployments).
 interface LeakyBucketEntry {
   tat: number; // Theoretical Arrival Time
 }
@@ -98,6 +105,16 @@ export async function apiKeyRateLimit(
     }
   } catch (err) {
     // If Redis helper threw, we'll fall back to in-memory below.
+  }
+
+  // In stateless mode Redis is mandatory — refuse to serve rather than allow
+  // divergent per-instance counters to break rate limit guarantees.
+  if (STATELESS_MODE) {
+    res.status(503).json({
+      error: "Rate limit service unavailable. Redis is required in STATELESS_MODE.",
+      code: "SERVICE_UNAVAILABLE",
+    });
+    return;
   }
 
   // Fallback to in-memory windowing if Redis is unavailable
