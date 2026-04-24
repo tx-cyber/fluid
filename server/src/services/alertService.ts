@@ -57,6 +57,14 @@ export interface BridgeStallAlertPayload {
   stalledAt: Date;
 }
 
+export interface TreasuryRebalanceFailureAlertPayload {
+  accountPublicKey: string;
+  balanceXlm: number;
+  detail: string;
+  failedAt: Date;
+  thresholdXlm: number;
+}
+
 export interface AlertServiceOptions {
   emailTransport?: EmailTransportConfig;
   fetchImpl?: typeof fetch;
@@ -303,6 +311,40 @@ export class AlertService {
     return true;
   }
 
+  async sendTreasuryRebalanceFailureAlert(
+    payload: TreasuryRebalanceFailureAlertPayload,
+  ): Promise<boolean> {
+    if (!this.isEnabled()) {
+      await this.persistTreasuryRebalanceFailure(payload);
+      return false;
+    }
+
+    const tasks: Array<Promise<void>> = [];
+
+    if (this.slackNotifier.isEnabled("treasury_rebalance_failure")) {
+      tasks.push(
+        this.slackNotifier
+          .notifyTreasuryRebalanceFailure(payload)
+          .then((sent) => {
+            if (!sent) {
+              throw new Error(
+                "Slack treasury rebalancing alert could not be delivered.",
+              );
+            }
+          }),
+      );
+    }
+
+    await this.persistTreasuryRebalanceFailure(payload);
+
+    if (tasks.length === 0) {
+      return false;
+    }
+
+    const results = await Promise.allSettled(tasks);
+    return results.some((result) => result.status === "fulfilled");
+  }
+
   markBalanceRecovered(accountPublicKey: string): void {
     const existing = this.state.get(accountPublicKey);
     if (!existing) {
@@ -449,6 +491,28 @@ export class AlertService {
     }
 
     await Promise.allSettled(tasks);
+  }
+
+  private async persistTreasuryRebalanceFailure(
+    payload: TreasuryRebalanceFailureAlertPayload,
+  ): Promise<void> {
+    await createNotification({
+      type: "critical",
+      title: "Treasury rebalancing failed",
+      message: `Hot wallet ${payload.accountPublicKey.slice(0, 8)}... could not be topped up after dropping to ${payload.balanceXlm.toFixed(2)} XLM.`,
+      metadata: {
+        accountPublicKey: payload.accountPublicKey,
+        balanceXlm: payload.balanceXlm,
+        detail: payload.detail,
+        failedAt: payload.failedAt.toISOString(),
+        thresholdXlm: payload.thresholdXlm,
+      },
+    }).catch((err) =>
+      console.error(
+        "[AlertService] Failed to persist treasury rebalancing alert:",
+        err,
+      )
+    );
   }
 
   private async sendEmailAlert(
