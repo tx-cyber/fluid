@@ -36,7 +36,6 @@
     "changeset:version": "changeset version",
     "changeset:publish": "changeset publish",
     "changeset:status": "changeset status --since=origin/main",
-    "release:changesets": "changeset publish",
-    "prepare": "husky"
+    "release:changesets": "changeset publish"
   }
 }
