@@ -141,6 +141,10 @@ import { BullMQAdapter } from "@bull-board/api/bullMQAdapter";
 import { ExpressAdapter } from "@bull-board/express";
 import { feeBumpQueue, feeBumpQueueEvents } from "./queues/feeBumpQueue";
 import { initializeFeeBumpWorker } from "./workers/feeBumpWorker";
+import {
+  initializePartitionMaintenanceWorker,
+  PartitionMaintenanceWorker,
+} from "./workers/partitionMaintenanceWorker";
 
 const logger = createLogger({ component: "server" });
 const config = loadConfig();
@@ -539,6 +543,7 @@ let digestWorker: ReturnType<typeof initializeDigestWorker> | null = null;
 let tenantErasureWorker: TenantErasureWorker | null = null;
 let treasuryRefillWorker: ReturnType<typeof initializeTreasuryRefill> | null = null;
 let feeBumpWorker: ReturnType<typeof initializeFeeBumpWorker> | null = null;
+let partitionMaintenanceWorker: PartitionMaintenanceWorker | null = null;
 let shuttingDown = false;
 let server: ReturnType<typeof app.listen> | null = null;
 
@@ -565,6 +570,7 @@ async function shutdown(signal: string): Promise<void> {
   stopChainRegistryHotReload();
   stopOFACScreening();
   treasurySweeper?.stop();
+  partitionMaintenanceWorker?.stop();
   await feeBumpWorker?.close();
   await feeBumpQueueEvents.close();
   await feeBumpQueue.close();
@@ -740,6 +746,16 @@ try {
   logger.error(
     { ...serializeError(error) },
     "Failed to start fee-bump queue worker",
+  );
+}
+
+try {
+  partitionMaintenanceWorker = initializePartitionMaintenanceWorker();
+  partitionMaintenanceWorker.start();
+} catch (error) {
+  logger.error(
+    { ...serializeError(error) },
+    "Failed to start partition maintenance worker",
   );
 }
 
