@@ -3,6 +3,7 @@ use std::str::FromStr;
 use std::sync::{Mutex, OnceLock};
 mod blocklist;
 mod heuristics;
+pub mod archive;
 
 use blocklist::Blocklist;
 use heuristics::RequestTracker;

@@ -26,6 +26,7 @@ use ai_query::{handle_ai_query, QueryRequest, QueryFilters};
 use config::load_config;
 use db::create_pool;
 use error::AppError;
+use fluid_server::archive::run_archival_job;
 use fluid_server::grpc::serve_grpc;
 use horizon::HorizonNodeStatus;
 use logging::init_logging_from_env;
@@ -211,6 +212,42 @@ async fn run() -> Result<(), AppError> {
     let port = config.port;
     let allowed_origins = config.allowed_origins.clone();
     let state = AppState::new(config, &secrets)?;
+
+    // Create database pool for archival job
+    let db_pool = match create_pool().await {
+        Ok(pool) => {
+            info!("Database pool created successfully for archival job");
+            Some(Arc::new(pool))
+        }
+        Err(error) => {
+            error!("Database pool unavailable, archival job will not run: {error}");
+            None
+        }
+    };
+
+    // Start archival job if database pool is available
+    if let Some(pool) = db_pool.clone() {
+        tokio::spawn(async move {
+            info!("Starting transaction archival job...");
+            
+            // Run once on startup
+            if let Err(e) = run_archival_job(&pool).await {
+                error!("Initial archival job failed: {}", e);
+            }
+            
+            // Then every 30 days (30 * 24 * 3600 seconds)
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30 * 24 * 3600));
+            loop {
+                interval.tick().await;
+                info!("Running monthly transaction archival job...");
+                if let Err(e) = run_archival_job(&pool).await {
+                    error!("Monthly archival job failed: {}", e);
+                } else {
+                    info!("Monthly archival job completed successfully");
+                }
+            }
+        });
+    }
 
     // Background task: periodically revalidate signer accounts and refresh balances
     {
@@ -771,4 +808,3 @@ const DASHBOARD_HTML: &str = r#"<!doctype html>
     </script>
   </body>
 </html>"#;
-
