@@ -122,12 +122,26 @@ describe("LedgerMonitor", () => {
       client as any,
     );
 
-    expect(MemoryProfiler).toHaveBeenCalledWith(config.workers.memoryProfiling);
+    let cycleFinished = false;
+    // Mock runCycle to simulate a long-running operation
+    monitor["runCycle"] = async (workFn) => {
+      monitor["currentPromise"] = (async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        cycleFinished = true;
+      })();
+      await monitor["currentPromise"];
+      monitor["currentPromise"] = null;
+    };
+
+    // Trigger a cycle manually
+    const cyclePromise = monitor["runCycle"](async () => {});
     
-    monitor.start();
-    expect((monitor as any).memoryProfiler.start).toHaveBeenCalled();
+    // Call stop concurrently
+    const stopPromise = monitor.stop();
     
-    monitor.stop();
-    expect((monitor as any).memoryProfiler.stop).toHaveBeenCalled();
+    await stopPromise;
+    expect(cycleFinished).toBe(true);
+    await cyclePromise;
   });
 });
+

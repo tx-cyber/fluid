@@ -74,6 +74,38 @@ services:
     networks:
       - fluid-network
 
+  # PgBouncer multiplexes thousands of short-lived app connections into a small
+  # Postgres server-side pool, preventing connection exhaustion under high load
+  # or serverless/multi-replica deployments.
+  # Pool mode: transaction — compatible with Prisma (use ?pgbouncer=true in URL).
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: fluid-pgbouncer
+    environment:
+      DB_HOST: "postgres"
+      DB_PORT: "5432"
+      DB_USER: "${POSTGRES_USER:-fluid}"
+      DB_PASSWORD: "${POSTGRES_PASSWORD:-fluid_pass}"
+      DB_NAME: "${POSTGRES_DB:-fluid_db}"
+      POOL_MODE: "transaction"
+      MAX_CLIENT_CONN: "1000"
+      DEFAULT_POOL_SIZE: "20"
+      MIN_POOL_SIZE: "2"
+      AUTH_TYPE: "plain"
+      SERVER_IDLE_TIMEOUT: "600"
+    ports:
+      - "6432:6432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 6432 -U ${POSTGRES_USER:-fluid} || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - fluid-network
+
   node-api:
     build:
       context: ./server
@@ -82,7 +114,10 @@ services:
     environment:
       PORT: "3001"
       REDIS_URL: "redis://redis:6379"
-      DATABASE_URL: "postgres://${POSTGRES_USER:-fluid}:${POSTGRES_PASSWORD:-fluid_pass}@postgres:5432/${POSTGRES_DB:-fluid_db}"
+      # Connect through PgBouncer (port 6432) instead of Postgres directly.
+      # The ?pgbouncer=true flag disables Prisma's prepared statements, which
+      # are incompatible with PgBouncer transaction-mode pooling.
+      DATABASE_URL: "postgres://${POSTGRES_USER:-fluid}:${POSTGRES_PASSWORD:-fluid_pass}@pgbouncer:6432/${POSTGRES_DB:-fluid_db}?pgbouncer=true"
       FLUID_FEE_PAYER_SECRET: "${FLUID_FEE_PAYER_SECRET}"
       STELLAR_HORIZON_URL: "${STELLAR_HORIZON_URL:-https://horizon-testnet.stellar.org}"
       STELLAR_NETWORK_PASSPHRASE: "${STELLAR_NETWORK_PASSPHRASE:-Test SDF Network ; September 2015}"
@@ -91,7 +126,7 @@ services:
     ports:
       - "3001:3001"
     depends_on:
-      postgres:
+      pgbouncer:
         condition: service_healthy
       redis:
         condition: service_healthy

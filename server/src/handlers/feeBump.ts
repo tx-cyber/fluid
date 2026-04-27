@@ -25,6 +25,16 @@ import { enforceKycForFeeSponsorship } from "../services/kycService";
 import { SponsorFactory } from "../sponsors/factory";
 import { StellarFeeSponsor } from "../sponsors/stellar";
 import { nativeSigner } from "../signing/native";
+import {
+  feeBumpQueue,
+  feeBumpQueueEvents,
+  FeeBumpJobData,
+} from "../queues/feeBumpQueue";
+
+const FEEBUMP_JOB_TIMEOUT_MS = parseInt(
+  process.env.FEEBUMP_JOB_TIMEOUT_MS ?? "30000",
+  10,
+);
 
 /**
  * @openapi
@@ -395,7 +405,7 @@ function createSettlementExecutor(config: Config): SettlementExecutor {
   };
 }
 
-async function processFeeBump(
+export async function processFeeBump(
   xdr: string,
   submit: boolean,
   config: Config,
@@ -632,13 +642,28 @@ export async function feeBumpHandler(
       return;
     }
 
-    const response = await processFeeBump(
-      body.xdr,
-      body.submit || false,
-      config,
+    const job = await feeBumpQueue.add("submit", {
+      xdr: body.xdr,
+      submit: body.submit ?? false,
       tenant,
-      feePayerAccount
-    );
+      requestId: req.header("x-request-id") ?? undefined,
+    } satisfies FeeBumpJobData);
+
+    let response: FeeBumpResponse;
+    try {
+      response = await job.waitUntilFinished(
+        feeBumpQueueEvents,
+        FEEBUMP_JOB_TIMEOUT_MS,
+      );
+    } catch (err: any) {
+      if (err.message?.includes("timed out")) {
+        res
+          .status(504)
+          .json({ error: "Fee-bump job timed out", code: "JOB_TIMEOUT" });
+        return;
+      }
+      throw err;
+    }
 
     res.json(response);
   } catch (error: any) {

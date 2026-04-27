@@ -1,5 +1,6 @@
 use std::fmt;
 use std::str::FromStr;
+use std::sync::{Mutex, OnceLock};
 mod blocklist;
 mod heuristics;
 
@@ -7,8 +8,8 @@ use blocklist::Blocklist;
 use heuristics::RequestTracker;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-static mut BLOCKLIST: Option<Blocklist> = None;
-static mut TRACKER: Option<RequestTracker> = None;
+static BLOCKLIST: OnceLock<Mutex<Blocklist>> = OnceLock::new();
+static TRACKER: OnceLock<Mutex<RequestTracker>> = OnceLock::new();
 
 fn now() -> u64 {
     #[cfg(target_arch = "wasm32")]
@@ -44,6 +45,8 @@ pub mod config;
 pub mod error;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod grpc;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod logging;
 
 const MAX_SIGNATURES: usize = 20;
 
@@ -174,46 +177,48 @@ pub fn sign_transaction_xdr_internal(
 ) -> Result<SigningResult, SigningError> {
     let signer = signer_context(secret_key)?;
 
+    let public_key = signer.public_key.clone();
+    let blocklist = BLOCKLIST.get_or_init(|| Mutex::new(Blocklist::new()));
+    let tracker = TRACKER.get_or_init(|| Mutex::new(RequestTracker::new()));
 
-//  
-let public_key = signer.public_key.clone();
-
-unsafe {
-    if BLOCKLIST.is_none() {
-        BLOCKLIST = Some(Blocklist::new());
-    }
-    if TRACKER.is_none() {
-        TRACKER = Some(RequestTracker::new());
-    }
-
-    let blocklist = BLOCKLIST.as_mut().unwrap();
-    let tracker = TRACKER.as_mut().unwrap();
-
-    if blocklist.is_blocked(&public_key, now()) {
-        return Err("Account is blocked".into());
+    {
+        let blocklist_guard = blocklist
+            .lock()
+            .map_err(|_| SigningError::SuspiciousActivity("blocklist lock poisoned".to_string()))?;
+        if blocklist_guard.is_blocked(&public_key, now()) {
+            return Err("Account is blocked".into());
+        }
     }
 
-    if tracker.is_suspicious(&public_key, now()) {
-        blocklist.add(
-    public_key.clone(),
-    "Suspicious activity detected".to_string(),
-    now(),
-);
+    let suspicious = {
+        let mut tracker_guard = tracker
+            .lock()
+            .map_err(|_| SigningError::SuspiciousActivity("tracker lock poisoned".to_string()))?;
+        tracker_guard.is_suspicious(&public_key, now())
+    };
+
+    if suspicious {
+        let mut blocklist_guard = blocklist
+            .lock()
+            .map_err(|_| SigningError::SuspiciousActivity("blocklist lock poisoned".to_string()))?;
+        blocklist_guard.add(
+            public_key.clone(),
+            "Suspicious activity detected".to_string(),
+            now(),
+        );
         return Err("Account flagged and blocked".into());
     }
-}
-//  END BLOCK
 
-let mut envelope = parse_transaction_envelope(unsigned_xdr)?;
-let tx_hash = transaction_hash(&envelope, network_passphrase)?;
-let signed_envelope = append_signature(&mut envelope, &signer, &tx_hash)?;
+    let mut envelope = parse_transaction_envelope(unsigned_xdr)?;
+    let tx_hash = transaction_hash(&envelope, network_passphrase)?;
+    let signed_envelope = append_signature(&mut envelope, &signer, &tx_hash)?;
 
-Ok(SigningResult {
-    signed_xdr: signed_envelope,
-    signer_public_key: signer.public_key,
-    transaction_hash_hex: hex::encode(tx_hash),
-    signature_count: envelope_signature_count(&envelope),
-})
+    Ok(SigningResult {
+        signed_xdr: signed_envelope,
+        signer_public_key: signer.public_key,
+        transaction_hash_hex: hex::encode(tx_hash),
+        signature_count: envelope_signature_count(&envelope),
+    })
 }
 
 #[derive(Debug)]
